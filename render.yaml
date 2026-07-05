@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: signal-console
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      # Add your real values for these in the Render dashboard (Environment tab) —
+      # never commit real keys into this file or into git.
+      - key: SERPER_API_KEY
+        sync: false
+      - key: SERPER_MONTHLY_BUDGET
+        value: 1500
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: FIRECRAWL_MONTHLY_BUDGET
+        value: 600
+      - key: SCRAPERAPI_API_KEY
+        sync: false
+      - key: SCRAPERAPI_MONTHLY_BUDGET
+        value: 400
+      - key: REDDIT_CLIENT_ID
+        sync: false
+      - key: REDDIT_CLIENT_SECRET
+        sync: false
+      - key: REDDIT_USER_AGENT
+        value: signal-console/1.0 (personal research tool)
+      - key: ENABLE_CRAIGSLIST_FETCH
+        value: true
+      - key: ENABLE_PROXYSCRAPE
+        value: false
+      - key: ENABLE_BRIGHTDATA
+        value: false

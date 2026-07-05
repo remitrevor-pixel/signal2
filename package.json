@@ -1,0 +1,18 @@
+{
+  "name": "signal-console",
+  "version": "1.0.0",
+  "description": "Personal cross-platform research search console — real APIs + launcher pattern + on-demand scraping fallback",
+  "main": "server/server.js",
+  "type": "commonjs",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js",
+    "bot": "node discord-bot/bot.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "discord.js": "^14.15.3"
+  }
+}
