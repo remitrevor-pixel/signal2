@@ -357,6 +357,9 @@
 <div class="filter-backdrop" id="filterBackdrop"></div>
 
 <script>
+// Backend API base URL — change this if you deploy the backend elsewhere
+const API_BASE = 'https://signal2-olcz.onrender.com';
+
 const PLATFORMS = [
   {id:'reddit', name:'Reddit', mono:'r/', color:'#4FE3D0', kind:'real'},
   {id:'x', name:'X / Twitter', mono:'𝕏', color:'#C7D0EA', kind:'launcher'},
@@ -679,7 +682,7 @@ async function refreshSavedList(){
   const el = document.getElementById('savedListArea');
   if(!el) return;
   try{
-    const res = await fetch('/api/keywords');
+    const res = await fetch(API_BASE + '/api/keywords');
     const items = await res.json();
     state.savedItems = items;
     el.innerHTML = items.length ? items.map(it => `
@@ -698,7 +701,7 @@ async function saveCurrentQuery(){
   const query = document.getElementById('searchInput').value.trim();
   if(!query){ if(labelInput){ labelInput.placeholder = 'Type a search above first…'; } return; }
   try{
-    await fetch('/api/keywords', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ label, query }) });
+    await fetch(API_BASE + '/api/keywords', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ label, query }) });
     if(labelInput) labelInput.value = '';
     await refreshSavedList();
   }catch(e){ /* backend unreachable — list refresh will surface the error state */ }
@@ -717,7 +720,7 @@ function loadSavedItem(id){
 
 async function deleteSavedItem(id){
   try{
-    await fetch('/api/keywords/'+id, { method:'DELETE' });
+    await fetch(API_BASE + '/api/keywords/'+id, { method:'DELETE' });
     await refreshSavedList();
   }catch(e){ /* ignore — list stays as-is if backend unreachable */ }
 }
@@ -726,7 +729,7 @@ async function refreshQuota(){
   const el = document.getElementById('quotaRows');
   if(!el) return;
   try{
-    const res = await fetch('/api/quota');
+    const res = await fetch(API_BASE + '/api/quota');
     const q = await res.json();
     const items = Object.entries(q).filter(([k,v])=>v.budget>0);
     const warnBtn = document.getElementById('settingsBtn');
@@ -797,7 +800,7 @@ async function runSearch(){
   });
 
   try{
-    const res = await fetch('/api/search?' + params.toString());
+    const res = await fetch(API_BASE + '/api/search?' + params.toString());
     const data = await res.json();
     state.launcherLinks = data.launcherLinks || {};
     renderResults(data);
@@ -907,7 +910,7 @@ async function expandResult(id){
   btn.disabled = true; btn.textContent = 'fetching…';
   try{
     // country is passed through so the fetch is geo-targeted (helps with geo-restricted content)
-    const res = await fetch('/api/expand', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url: r.url, country: r.country}) });
+    const res = await fetch(API_BASE + '/api/expand', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url: r.url, country: r.country}) });
     const data = await res.json();
     if(data.error){ extra.textContent = 'Could not fetch full content: ' + data.error; }
     else { extra.textContent = (data.text || '(no extractable text)') + (data.fromCache ? '\n\n[cached]' : '') + (data.countryCode ? `\n[fetched via ${data.provider}, geo-targeted: ${data.countryCode}]` : (data.provider ? `\n[fetched via ${data.provider}]` : '')); }
