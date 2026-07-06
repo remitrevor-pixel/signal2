@@ -4,7 +4,7 @@ const router = express.Router();
 const { PLATFORMS, COUNTRIES } = require('./config');
 const { parseQuery, matchesQuery, toSearchString } = require('./queryParser');
 const reddit = require('./providers/reddit');
-const redditPublic = require('./providers/reddit-public');
+const redditSerper = require('./providers/reddit-serper');
 const serper = require('./providers/serper');
 const fetchChain = require('./providers/fetchChain');
 const quota = require('./quota');
@@ -49,8 +49,9 @@ function withinTimeRange(minsAgo, rangeId) {
 
 async function getRedditResults(parsed, searchString) {
   try {
-    // Use public Reddit search endpoint — no authentication required
-    const posts = await redditPublic.searchPublic(searchString || parsed.positiveWords.join(' OR ') || 'research study');
+    // Use Serper to search for Reddit posts (Google search with site:reddit.com)
+    // More reliable than public API, uses your existing Serper quota
+    const posts = await redditSerper.searchViaSerper(searchString || parsed.positiveWords.join(' OR ') || 'research study', 'us');
     return posts
       .filter(p => matchesQuery(parsed, p.title + ' ' + (p.snippet || '')))
       .map(p => ({
@@ -66,6 +67,7 @@ async function getRedditResults(parsed, searchString) {
         discovery: false,
       }));
   } catch (e) {
+    console.error('Reddit search error:', e.message);
     return { error: `Reddit: ${e.message}` };
   }
 }
