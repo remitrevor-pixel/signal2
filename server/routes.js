@@ -4,6 +4,7 @@ const router = express.Router();
 const { PLATFORMS, COUNTRIES } = require('./config');
 const { parseQuery, matchesQuery, toSearchString } = require('./queryParser');
 const reddit = require('./providers/reddit');
+const redditPublic = require('./providers/reddit-public');
 const serper = require('./providers/serper');
 const fetchChain = require('./providers/fetchChain');
 const quota = require('./quota');
@@ -48,20 +49,21 @@ function withinTimeRange(minsAgo, rangeId) {
 
 async function getRedditResults(parsed, searchString) {
   try {
-    const posts = await reddit.search(searchString || parsed.positiveWords.join(' OR ') || 'research study');
+    // Use public Reddit search endpoint — no authentication required
+    const posts = await redditPublic.searchPublic(searchString || parsed.positiveWords.join(' OR ') || 'research study');
     return posts
-      .filter(p => matchesQuery(parsed, p.title + ' ' + p.body))
+      .filter(p => matchesQuery(parsed, p.title + ' ' + (p.snippet || '')))
       .map(p => ({
         id: p.id,
         platform: 'reddit',
         country: null, // Reddit content isn't reliably geo-taggable; shown regardless of country filter
         title: p.title,
-        snippet: p.body,
+        snippet: p.snippet,
         source: p.source,
         url: p.url,
-        minsAgo: minutesAgoFromUnix(p.createdUtc),
-        engagement: p.engagement,
-        real: true,
+        minsAgo: p.minsAgo,
+        engagement: p.engagement || 0,
+        discovery: false,
       }));
   } catch (e) {
     return { error: `Reddit: ${e.message}` };
