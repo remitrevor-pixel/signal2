@@ -97,11 +97,12 @@ async function universityResearch(searchString, country, timeRange) {
   return rawSearch(q, { gl, tbs: timeRangeToTbs(timeRange) });
 }
 
-// Discovery snippets for a platform we don't have a direct API for — stays 100% on Google's
-// side of the fence, never touches the target platform.
-async function discoverySnippets(platformQuery, country, timeRange) {
+// Discovery snippets for a platform we don't have a direct API for (X, LinkedIn, Facebook,
+// Craigslist) — stays 100% on Google's side of the fence, never touches the target platform.
+async function platformDiscovery(searchString, domain, country, timeRange) {
   const gl = (country && country.gl) || 'us';
-  return rawSearch(platformQuery, { gl, num: 10, tbs: timeRangeToTbs(timeRange) });
+  const q = `${searchString} site:${domain}`;
+  return rawSearch(q, { gl, tbs: timeRangeToTbs(timeRange) });
 }
 
 // Get key rotation stats
@@ -117,6 +118,7 @@ module.exports = {
   rawSearch, 
   generalWeb, 
   universityResearch, 
-  discoverySnippets,
+  platformDiscovery,
+  timeRangeToTbs,
   getStats 
 };
