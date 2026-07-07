@@ -9,6 +9,7 @@ const serper = require('./providers/serper');
 const fetchChain = require('./providers/fetchChain');
 const quota = require('./quota');
 const keywordStore = require('./keywordStore');
+const keywordBankStore = require('./keywordBankStore');
 
 // ---- helpers ----
 
@@ -265,6 +266,28 @@ router.post('/keywords', (req, res) => {
 
 router.delete('/keywords/:id', (req, res) => {
   const removed = keywordStore.remove(req.params.id);
+  if (!removed) return res.status(404).json({ error: 'not found' });
+  res.json({ removed: true });
+});
+
+// ---- keyword bank (individual reusable keywords, e.g. "survey", "compensation") ----
+
+router.get('/keyword-bank', (req, res) => {
+  res.json(keywordBankStore.list());
+});
+
+router.post('/keyword-bank', (req, res) => {
+  const { label, value } = req.body || {};
+  try {
+    const item = keywordBankStore.add(label, value);
+    res.json(item);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.delete('/keyword-bank/:id', (req, res) => {
+  const removed = keywordBankStore.remove(req.params.id);
   if (!removed) return res.status(404).json({ error: 'not found' });
   res.json({ removed: true });
 });
