@@ -3,6 +3,17 @@ const path = require('path');
 const routes = require('./routes');
 
 const app = express();
+
+// CORS — the APK's WebView loads index.html from a different origin than the Render backend,
+// so cross-origin fetch() calls need these headers or stricter WebViews will silently block them.
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 app.use(express.json());
 app.use('/api', routes);
 app.use(express.static(path.join(__dirname, '..', 'public')));
