@@ -33,7 +33,7 @@ async function rawSearch(q, { gl = 'us', num = 10, tbs } = {}) {
   if (!serperRotator || serperRotator.getAllKeys().length === 0) {
     throw new Error('Serper not configured (SERPER_API_KEY or SERPER_API_KEY_1, SERPER_API_KEY_2, etc.)');
   }
-  
+
   const q1 = quota.check('serper');
   if (!q1.allowed) {
     throw new Error(`Serper monthly budget exhausted (${q1.used}/${q1.budget}). Raise SERPER_MONTHLY_BUDGET in .env if you have room left on your actual plan.`);
@@ -42,42 +42,44 @@ async function rawSearch(q, { gl = 'us', num = 10, tbs } = {}) {
   const body = { q, gl, num };
   if (tbs) body.tbs = tbs; // e.g. 'qdr:d' = past day, 'qdr:w' = past week, 'qdr:m' = past month
 
-  // Get next key in rotation
-  const apiKey = serperRotator.getNext();
-  if (!apiKey) throw new Error('No Serper API keys available');
+  // Try every available key before giving up — a single bad/exhausted/wrong-plan key should
+  // never fail the whole search when other good keys are sitting right there in rotation.
+  let lastError;
+  for (let attempt = 0; attempt < serperRotator.getAllKeys().length; attempt++) {
+    const apiKey = serperRotator.getNext();
+    if (!apiKey) break;
 
-  try {
-    const res = await fetch('https://google.serper.dev/search', {
-      method: 'POST',
-      headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    try {
+      const res = await fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
 
-    if (!res.ok) {
-      const error = `Serper request failed: ${res.status}`;
-      
-      // If 429 (rate limit), mark this key as failed temporarily
-      if (res.status === 429) {
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        lastError = new Error(`Serper request failed: ${res.status}${detail ? ' — ' + detail.slice(0, 200) : ''}`);
+        // Any failure status (400/401/403/429/5xx) on this key — mark it and try the next one.
         serperRotator.markFailed(apiKey);
-        throw new Error(`${error} - Rate limited. Trying next key...`);
+        console.log(`[Serper] Key ${apiKey.substring(0, 8)}... failed (${res.status}), trying next key...`);
+        continue;
       }
-      
-      throw new Error(error);
-    }
 
-    quota.increment('serper', 1);
-    const json = await res.json();
-    return (json.organic || []).map(r => ({
-      title: r.title,
-      snippet: r.snippet || '',
-      url: r.link,
-      date: r.date || null,
-    }));
-  } catch (error) {
-    // Log error but don't throw immediately — let caller decide what to do
-    console.error(`[Serper] Error with key ${apiKey.substring(0, 8)}...:`, error.message);
-    throw error;
+      quota.increment('serper', 1);
+      const json = await res.json();
+      return (json.organic || []).map(r => ({
+        title: r.title,
+        snippet: r.snippet || '',
+        url: r.link,
+        date: r.date || null,
+      }));
+    } catch (error) {
+      lastError = error;
+      console.error(`[Serper] Error with key ${apiKey.substring(0, 8)}...:`, error.message);
+    }
   }
+
+  throw lastError || new Error('All Serper keys exhausted or failed');
 }
 
 function timeRangeToTbs(rangeId) {
