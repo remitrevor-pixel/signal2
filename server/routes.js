@@ -4,7 +4,6 @@ const router = express.Router();
 const { PLATFORMS, COUNTRIES } = require('./config');
 const { parseQuery, matchesQuery, toSearchString } = require('./queryParser');
 const reddit = require('./providers/reddit');
-const redditSerper = require('./providers/reddit-serper');
 const serper = require('./providers/serper-multi');
 const fetchChain = require('./providers/fetchChain');
 const quota = require('./quota');
@@ -48,27 +47,35 @@ function withinTimeRange(minsAgo, rangeId) {
 
 // ---- platform result builders ----
 
-async function getRedditResults(parsed, searchString) {
+async function getRedditResults(parsed, searchString, countryList, timeRange) {
   try {
-    // Use Serper to search for Reddit posts (Google search with site:reddit.com)
-    // More reliable than public API, uses your existing Serper quota
-    const posts = await redditSerper.searchViaSerper(searchString || parsed.positiveWords.join(' OR ') || 'research study', 'us');
-    return posts
-      .filter(p => matchesQuery(parsed, p.title + ' ' + (p.snippet || '')))
-      .map(p => ({
-        id: p.id,
-        platform: 'reddit',
-        country: null, // Reddit content isn't reliably geo-taggable; shown regardless of country filter
-        title: p.title,
-        snippet: p.snippet,
-        source: p.source,
-        url: p.url,
-        minsAgo: p.minsAgo,
-        engagement: p.engagement || 0,
-        discovery: false,
-      }));
+    // Route through the same multi-key Serper path as every other search-backed platform
+    // (site:reddit.com, real dates from Google's index, respects the selected time filter) —
+    // rather than a bespoke Reddit-only call that used the wrong Google vertical (News, not
+    // web) and fabricated random timestamps/engagement instead of using real data.
+    const firstCountry = countryList && countryList[0] ? COUNTRIES[countryList[0]] : null;
+    const raw = await serper.platformDiscovery(searchString || parsed.positiveWords.join(' OR ') || 'research study', 'reddit.com', firstCountry, timeRange);
+    return raw
+      .filter(r => matchesQuery(parsed, `${r.title} ${r.snippet}`))
+      .map((r, i) => {
+        const minsAgo = parseRelativeDate(r.date);
+        let subreddit = 'reddit';
+        const match = r.url.match(/reddit\.com\/r\/([a-zA-Z0-9_]+)/);
+        if (match) subreddit = match[1];
+        return {
+          id: `reddit_${i}_${Buffer.from(r.url).toString('base64').slice(0, 8)}`,
+          platform: 'reddit',
+          country: null, // Reddit content isn't reliably geo-taggable; shown regardless of country filter
+          title: r.title,
+          snippet: r.snippet,
+          source: `r/${subreddit}`,
+          url: r.url,
+          minsAgo,
+          discovery: false,
+        };
+      })
+      .filter(r => withinTimeRange(r.minsAgo, timeRange));
   } catch (e) {
-    console.error('Reddit search error:', e.message);
     return { error: `Reddit: ${e.message}` };
   }
 }
@@ -176,7 +183,7 @@ router.get('/search', async (req, res) => {
     if (!plat) return;
 
     if (plat.mode === 'api' && platformId === 'reddit') {
-      const r = await getRedditResults(parsed, searchString);
+      const r = await getRedditResults(parsed, searchString, countryList, timeRange);
       if (r.error) errors.push(r.error); else allResults.push(...r);
     }
 
