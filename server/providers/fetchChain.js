@@ -1,7 +1,7 @@
 // Tries on-demand full-page fetch providers in order of preference (lowest risk / best quality
 // first), falling through to the next if one fails or is unconfigured. ProxyScrape and Bright
 // Data only get reached if you've explicitly enabled them in .env.
-const firecrawl = require('./firecrawl');
+const firecrawl = require('./firecrawl-multi');
 const scraperapi = require('./scraperapi');
 const scrapingbot = require('./scrapingbot');
 const brightdata = require('./brightdata');
