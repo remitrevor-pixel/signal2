@@ -257,46 +257,62 @@ router.get('/quota', (req, res) => {
 
 // ---- saved keywords / queries ----
 
-router.get('/keywords', (req, res) => {
-  res.json(keywordStore.list());
+router.get('/keywords', async (req, res) => {
+  try {
+    res.json(await keywordStore.list());
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
-router.post('/keywords', (req, res) => {
+router.post('/keywords', async (req, res) => {
   const { label, query } = req.body || {};
   try {
-    const item = keywordStore.add(label, query);
+    const item = await keywordStore.add(label, query);
     res.json(item);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
 });
 
-router.delete('/keywords/:id', (req, res) => {
-  const removed = keywordStore.remove(req.params.id);
-  if (!removed) return res.status(404).json({ error: 'not found' });
-  res.json({ removed: true });
+router.delete('/keywords/:id', async (req, res) => {
+  try {
+    const removed = await keywordStore.remove(req.params.id);
+    if (!removed) return res.status(404).json({ error: 'not found' });
+    res.json({ removed: true });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
 // ---- keyword bank (individual reusable keywords, e.g. "survey", "compensation") ----
 
-router.get('/keyword-bank', (req, res) => {
-  res.json(keywordBankStore.list());
+router.get('/keyword-bank', async (req, res) => {
+  try {
+    res.json(await keywordBankStore.list());
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
-router.post('/keyword-bank', (req, res) => {
+router.post('/keyword-bank', async (req, res) => {
   const { label, value } = req.body || {};
   try {
-    const item = keywordBankStore.add(label, value);
+    const item = await keywordBankStore.add(label, value);
     res.json(item);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
 });
 
-router.delete('/keyword-bank/:id', (req, res) => {
-  const removed = keywordBankStore.remove(req.params.id);
-  if (!removed) return res.status(404).json({ error: 'not found' });
-  res.json({ removed: true });
+router.delete('/keyword-bank/:id', async (req, res) => {
+  try {
+    const removed = await keywordBankStore.remove(req.params.id);
+    if (!removed) return res.status(404).json({ error: 'not found' });
+    res.json({ removed: true });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
 });
 
 module.exports = router;
