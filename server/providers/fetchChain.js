@@ -2,7 +2,7 @@
 // first), falling through to the next if one fails or is unconfigured. ProxyScrape and Bright
 // Data only get reached if you've explicitly enabled them in .env.
 const firecrawl = require('./firecrawl-multi');
-const scrapedo = require('./scrapedo');
+const scrapedo = require('./scrapedo-multi');
 const scrapingbot = require('./scrapingbot');
 const brightdata = require('./brightdata');
 const axios = require('axios');
