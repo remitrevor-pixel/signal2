@@ -1,13 +1,14 @@
-// Storage for saved keyword sets / query strings. Persists to your GitHub repo via githubStore
-// (survives Render restarts) when GITHUB_TOKEN/GITHUB_REPO are configured; otherwise falls back
-// to a local file — which works fine for local dev, but will NOT persist across Render restarts
-// on the free tier, since that filesystem is ephemeral.
+// Storage for the "Keyword Bank" — individual reusable keywords/phrases (e.g. "survey",
+// "compensation", "+remote") users tap to insert into the search bar. Persists to your GitHub
+// repo via githubStore (survives Render restarts) when GITHUB_TOKEN/GITHUB_REPO are configured;
+// otherwise falls back to a local file, which will NOT persist across Render restarts on the
+// free tier since that filesystem is ephemeral.
 const fs = require('fs');
 const path = require('path');
 const githubStore = require('./githubStore');
 
-const LOCAL_FILE = path.join(__dirname, '..', 'data', 'keywords.json');
-const REMOTE_PATH = 'data/keywords.json';
+const LOCAL_FILE = path.join(__dirname, '..', 'data', 'keyword-bank.json');
+const REMOTE_PATH = 'data/keyword-bank.json';
 
 function loadLocal() {
   try { return JSON.parse(fs.readFileSync(LOCAL_FILE, 'utf8')); } catch (e) { return []; }
@@ -20,24 +21,24 @@ function saveLocal(list) {
 async function list() {
   if (githubStore.configured()) {
     const { data } = await githubStore.readJson(REMOTE_PATH, []);
-    return [...data].sort((a, b) => b.createdAt - a.createdAt);
+    return [...data].sort((a, b) => a.createdAt - b.createdAt);
   }
-  return loadLocal().sort((a, b) => b.createdAt - a.createdAt);
+  return loadLocal().sort((a, b) => a.createdAt - b.createdAt);
 }
 
-async function add(label, query) {
-  if (!query || !query.trim()) throw new Error('query is required');
+async function add(label, value) {
+  if (!value || !value.trim()) throw new Error('value is required');
   const item = {
-    id: 'kw_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-    label: (label && label.trim()) || query.trim().slice(0, 40),
-    query: query.trim(),
+    id: 'kwb_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    label: (label && label.trim()) || value.trim(),
+    value: value.trim(),
     createdAt: Date.now(),
   };
 
   if (githubStore.configured()) {
     const { data, sha } = await githubStore.readJson(REMOTE_PATH, []);
     data.push(item);
-    await githubStore.writeJson(REMOTE_PATH, data, sha, `Save keyword: ${item.label}`);
+    await githubStore.writeJson(REMOTE_PATH, data, sha, `Add keyword bank entry: ${item.label}`);
     return item;
   }
 
@@ -52,7 +53,7 @@ async function remove(id) {
     const { data, sha } = await githubStore.readJson(REMOTE_PATH, []);
     const next = data.filter(i => i.id !== id);
     if (next.length === data.length) return false;
-    await githubStore.writeJson(REMOTE_PATH, next, sha, `Remove saved keyword: ${id}`);
+    await githubStore.writeJson(REMOTE_PATH, next, sha, `Remove keyword bank entry: ${id}`);
     return true;
   }
 
