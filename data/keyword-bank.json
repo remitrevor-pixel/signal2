@@ -10,5 +10,11 @@
     "label": "Gift Card",
     "value": "Gift Card",
     "createdAt": 1783528811497
+  },
+  {
+    "id": "kwb_mrcb2pe70qw9x",
+    "label": "rewards",
+    "value": "rewards",
+    "createdAt": 1783528929295
   }
 ]
