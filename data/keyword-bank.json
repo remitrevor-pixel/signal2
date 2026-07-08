@@ -28,5 +28,11 @@
     "label": "university research",
     "value": "university research",
     "createdAt": 1783528973081
+  },
+  {
+    "id": "kwb_mrcb424jwcyy3",
+    "label": "lab research",
+    "value": "lab research",
+    "createdAt": 1783528992451
   }
 ]
