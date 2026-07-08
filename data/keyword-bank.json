@@ -40,5 +40,11 @@
     "label": "bonus",
     "value": "bonus",
     "createdAt": 1783529034821
+  },
+  {
+    "id": "kwb_mrcb5iahfqm94",
+    "label": "voucher",
+    "value": "voucher",
+    "createdAt": 1783529060057
   }
 ]
