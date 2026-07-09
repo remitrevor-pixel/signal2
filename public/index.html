@@ -22,6 +22,33 @@
     --r-sm:10px; --r-md:16px; --r-lg:22px; --r-pill:999px;
     --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px);
     --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px);
+    /* theme-dependent surface/scrim tokens — kept separate from the palette above so both
+       themes can override them without touching every individual rule that uses them */
+    --topbar-bg: rgba(8,11,20,0.72);
+    --scrim: rgba(4,6,12,0.55);
+    --scrim-strong: rgba(8,11,20,.85);
+    --shadow-sheet: 0 -20px 60px -10px rgba(0,0,0,0.6);
+    --bg-blob-violet: rgba(155,123,255,0.14);
+    --bg-blob-cyan: rgba(79,227,208,0.10);
+    --bg-grid-line: rgba(255,255,255,0.015);
+  }
+  /* Light theme — same token names, light-appropriate values. Applied via [data-theme="light"]
+     on <html>, set as early as possible (see the tiny inline script right after this stylesheet)
+     to avoid a flash of the wrong theme on load. */
+  [data-theme="light"]{
+    --abyss:#F3F5FB; --panel:#FFFFFF; --panel-2:#EEF1F8; --panel-glass:rgba(255,255,255,0.85);
+    --hairline:#D8DEEC; --hairline-soft:#E6EAF6;
+    --frost:#12172B; --mist:#5B6788; --mist-dim:#8791AC;
+    --cyan:#0BA89A; --cyan-dim:#0A7B72; --cyan-soft:rgba(11,168,154,0.12);
+    --violet:#6E4FE0; --violet-dim:#5138B0; --violet-soft:rgba(110,79,224,0.10);
+    --flare:#D93B54; --flare-dim:#B12B41; --flare-soft:rgba(217,59,84,0.10);
+    --topbar-bg: rgba(255,255,255,0.78);
+    --scrim: rgba(30,34,50,0.35);
+    --scrim-strong: rgba(20,24,38,.78);
+    --shadow-sheet: 0 -20px 50px -12px rgba(30,34,60,0.18);
+    --bg-blob-violet: rgba(110,79,224,0.08);
+    --bg-blob-cyan: rgba(11,168,154,0.07);
+    --bg-grid-line: rgba(10,15,40,0.035);
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{margin:0;padding:0; overscroll-behavior-y:none;}
@@ -30,10 +57,10 @@
     min-height:100vh; min-height:100dvh; -webkit-font-smoothing:antialiased;
     touch-action:manipulation;
     background-image:
-      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(155,123,255,0.14), transparent 60%),
-      radial-gradient(ellipse 700px 400px at 90% 10%, rgba(79,227,208,0.10), transparent 60%),
-      repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, transparent 1px, transparent 26px),
-      repeating-linear-gradient(90deg, rgba(255,255,255,0.015) 0px, transparent 1px, transparent 26px);
+      radial-gradient(ellipse 900px 500px at 50% -10%, var(--bg-blob-violet), transparent 60%),
+      radial-gradient(ellipse 700px 400px at 90% 10%, var(--bg-blob-cyan), transparent 60%),
+      repeating-linear-gradient(0deg, var(--bg-grid-line) 0px, transparent 1px, transparent 26px),
+      repeating-linear-gradient(90deg, var(--bg-grid-line) 0px, transparent 1px, transparent 26px);
     background-attachment:fixed;
   }
   ::selection{background:var(--cyan); color:var(--abyss);}
@@ -49,7 +76,7 @@
     position:sticky; top:0; z-index:60;
     padding:calc(12px + var(--safe-t)) 16px 12px;
     display:flex; align-items:center; justify-content:space-between; gap:10px;
-    background:rgba(8,11,20,0.72); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+    background:var(--topbar-bg); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
     border-bottom:1px solid var(--hairline-soft);
   }
   .brand{display:flex; align-items:center; gap:10px;}
@@ -123,7 +150,7 @@
   .filter-trigger.open .chev{transform:rotate(180deg);}
   .filter-trigger:active{transform:scale(0.97);}
 
-  .filter-backdrop{position:fixed; inset:0; background:rgba(4,6,12,0.55); backdrop-filter:blur(2px); z-index:70; opacity:0; pointer-events:none; transition:opacity .2s;}
+  .filter-backdrop{position:fixed; inset:0; background:var(--scrim); backdrop-filter:blur(2px); z-index:70; opacity:0; pointer-events:none; transition:opacity .2s;}
   .filter-backdrop.show{opacity:1; pointer-events:auto;}
 
   .filter-panel{
@@ -132,7 +159,7 @@
     border:1px solid var(--hairline-soft); border-bottom:none;
     padding:8px 6px calc(18px + var(--safe-b)); max-height:70vh; overflow-y:auto;
     transform:translateY(105%); transition:transform .28s cubic-bezier(.32,.72,0,1);
-    box-shadow:0 -20px 60px -10px rgba(0,0,0,0.6);
+    box-shadow:var(--shadow-sheet);
   }
   .filter-panel.open{transform:translateY(0);}
   .filter-panel .grabber{width:36px; height:4px; border-radius:2px; background:var(--hairline); margin:6px auto 12px;}
@@ -327,10 +354,17 @@
   .dm-link-url{flex:1; min-width:0; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--cyan); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .dm-link-open{background:none; border:1px solid var(--hairline-soft); border-radius:8px; padding:7px 11px; color:var(--frost); font-size:11px; flex-shrink:0; white-space:nowrap;}
   .dm-link-open:active{background:var(--cyan-soft); border-color:var(--cyan-dim); color:var(--cyan);}
+  .dm-link-copy{background:none; border:1px solid var(--hairline-soft); border-radius:8px; padding:7px 9px; color:var(--mist); font-size:11px; flex-shrink:0;}
+  .dm-link-copy:active{background:var(--violet-soft); border-color:var(--violet-dim); color:var(--violet);}
+  .dm-section-actions{display:flex; gap:8px; margin-bottom:8px;}
+  .dm-section-actions button{flex:1;}
   .dm-actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:4px;}
   .dm-actions .btn-ghost, .dm-actions .btn-ghost.primary{flex:1; min-width:130px; text-align:center; justify-content:center;}
   .dm-copy-toast{position:fixed; left:50%; bottom:calc(24px + var(--safe-b)); transform:translateX(-50%) translateY(8px); opacity:0; background:var(--panel-2); border:1px solid var(--cyan-dim); color:var(--cyan); font-size:12.5px; padding:9px 16px; border-radius:20px; z-index:99; transition:opacity .18s, transform .18s; pointer-events:none;}
   .dm-copy-toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+  .theme-toggle{display:flex; gap:8px;}
+  .theme-toggle-btn{flex:1; text-align:center; padding:11px 8px; border-radius:10px; background:var(--panel-2); border:1px solid var(--hairline-soft); font-size:12.5px; font-family:'Sora',sans-serif; font-weight:600; color:var(--mist); cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; -webkit-user-select:none; user-select:none;}
+  .theme-toggle-btn.active{background:var(--cyan-soft); border-color:var(--cyan-dim); color:var(--cyan);}
 
   /* ===== AI Tools modal ===== */
   .ai-tabs{display:flex; gap:8px; margin-bottom:16px;}
@@ -343,7 +377,7 @@
   .ai-upload-btn{background:var(--panel-2); border:1px solid var(--hairline-soft); border-radius:10px; padding:10px 18px; font-size:12.5px; color:var(--frost); font-family:'Sora',sans-serif; font-weight:600;}
   .ai-thumb-wrap{position:relative; display:block; line-height:0;}
   .ai-thumb{max-width:100%; max-height:220px; border-radius:10px; display:block; margin:0 auto;}
-  .ai-thumb-remove{position:absolute; top:8px; right:8px; background:rgba(8,11,20,.85); border:none; color:#fff; width:28px; height:28px; border-radius:50%; font-size:14px;}
+  .ai-thumb-remove{position:absolute; top:8px; right:8px; background:var(--scrim-strong); border:none; color:#fff; width:28px; height:28px; border-radius:50%; font-size:14px;}
   .ai-textarea{width:100%; min-height:88px; background:var(--panel-2); border:1px solid var(--hairline-soft); border-radius:var(--r-sm); padding:12px; color:var(--frost); font-family:'Inter',sans-serif; font-size:13px; resize:vertical; margin-bottom:14px; box-sizing:border-box;}
   .ai-textarea:focus{outline:none; border-color:var(--cyan-dim);}
   .ai-generate-btn{width:100%; padding:14px; border-radius:12px; border:none; background:linear-gradient(135deg,var(--cyan),var(--violet)); color:#04121b; font-family:'Sora',sans-serif; font-weight:700; font-size:13.5px; cursor:pointer;}
@@ -374,6 +408,17 @@
 </style>
 </head>
 <body>
+<script>
+// Runs synchronously before any visible content below is parsed, so the correct theme is
+// already applied by the time the topbar paints — avoids a flash of the wrong theme on load.
+(function(){
+  try{
+    var saved = localStorage.getItem('signal_theme');
+    var theme = saved || ((window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark');
+    if(theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+  }catch(e){ /* storage unavailable in this WebView — default dark theme applies */ }
+})();
+</script>
 
 <div class="topbar">
   <div class="brand">
@@ -468,8 +513,9 @@ let state = {
   countries: new Set(COUNTRIES.map(c=>c.id)),
   timeRange: 'all', sort: 'relevance', query: '', searched: false,
   launcherLinks: {}, openPanel: null, savedItems: [], lastResultsById: {},
-  keywordBankItems: [], detailResultId: null, detailFullText: '', detailLinks: [],
+  keywordBankItems: [], detailResultId: null, detailFullText: '', detailLinks: [], detailEmails: [],
   aiTab: 'email', aiImage: null, aiText: '', aiResult: null, aiError: null, aiLoading: false,
+  theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
 };
 
 /* ---- client-side parser preview (real filtering happens server-side) ---- */
@@ -656,6 +702,13 @@ function openSettings(){
   }
   sheet.innerHTML = panelHeader('Settings', false) + `<div class="settings-body">
     <div class="settings-section">
+      <h4>Appearance</h4>
+      <div class="theme-toggle">
+        <div class="theme-toggle-btn ${state.theme==='dark'?'active':''}" data-action="set-theme" data-id="dark">🌙 Dark</div>
+        <div class="theme-toggle-btn ${state.theme==='light'?'active':''}" data-action="set-theme" data-id="light">☀️ Light</div>
+      </div>
+    </div>
+    <div class="settings-section">
       <h4>Connected accounts</h4>
       <div id="accountsList"></div>
       <div class="acct-note">"Sign in" opens the platform's real login page in a new tab — we never see or store your password. The checkbox is just a personal reminder for this device; it doesn't verify anything.</div>
@@ -704,6 +757,20 @@ function safeStorageSet(key, val){
   try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){ /* storage unavailable in this WebView — silently no-op */ }
 }
 
+function setTheme(theme){
+  state.theme = theme;
+  document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark');
+  try{ localStorage.setItem('signal_theme', theme); }catch(e){ /* storage unavailable in this WebView — theme just won't persist */ }
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if(metaTheme) metaTheme.setAttribute('content', theme === 'light' ? '#F3F5FB' : '#080B14');
+  // Refresh the toggle's active state if the Settings panel is currently open
+  if(state.openPanel === 'settings'){
+    document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.id === theme);
+    });
+  }
+}
+
 // Opens external platform links (sign-in, launcher search, source links) in a way that gives
 // a real "back to Signal" affordance where possible:
 // - If this page is running inside a Capacitor-wrapped APK with @capacitor/browser installed,
@@ -713,6 +780,13 @@ function safeStorageSet(key, val){
 //   background (letting the phone's back button return to it) depends on the wrapper tool,
 //   not on this code — see README "Sign-in back button" section.
 function openExternal(url){
+  // mailto:/tel: aren't web pages — routing them through Capacitor's in-app Browser plugin
+  // (built for http/https) would fail or behave unpredictably. Hand these off straight to the
+  // OS instead, which is how the device's mail/phone app chooser gets triggered correctly.
+  if(/^(mailto|tel):/i.test(url)){
+    window.location.href = url;
+    return;
+  }
   const cap = window.Capacitor;
   if(cap && cap.Plugins && cap.Plugins.Browser && typeof cap.Plugins.Browser.open === 'function'){
     cap.Plugins.Browser.open({ url });
@@ -1100,6 +1174,25 @@ function extractLinksFromText(text, excludeUrl){
   return out;
 }
 
+// Pulls email addresses out of a blob of text/markdown, de-duplicated and lightly filtered to
+// drop obvious false positives (e.g. "1.5x@2x" style image-asset names some sites leave in
+// scraped markdown) that a plain email regex would otherwise catch.
+function extractEmailsFromText(text){
+  if(!text) return [];
+  const matches = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+  const seen = new Set();
+  const out = [];
+  matches.forEach(e => {
+    const email = e.replace(/[.,;:!?]+$/, '');
+    const lower = email.toLowerCase();
+    if(seen.has(lower)) return;
+    if(/\.(png|jpe?g|gif|webp|svg|css|js)$/i.test(lower)) return; // filename-looking false positive
+    seen.add(lower);
+    out.push(email);
+  });
+  return out;
+}
+
 function detailModalShell(){
   let modal = document.getElementById('detailModal');
   if(!modal){
@@ -1143,6 +1236,10 @@ async function openResultDetail(id){
         <div class="dm-section-label">Links found</div>
         <div id="dmLinksArea"><div class="dm-loading">fetching…</div></div>
       </div>
+      <div class="dm-section">
+        <div class="dm-section-label">Emails found</div>
+        <div id="dmEmailsArea"><div class="dm-loading">fetching…</div></div>
+      </div>
       <div class="dm-actions">
         <button class="btn-ghost primary" data-action="open-external" data-url="${escapeHtml(r.url)}">open source ↗</button>
         <button class="btn-ghost" data-action="copy-detail">copy all content</button>
@@ -1174,19 +1271,40 @@ async function openResultDetail(id){
     const uniqueLinks = [...new Set(links)];
     state.detailLinks = uniqueLinks;
     linksEl.innerHTML = uniqueLinks.length
-      ? uniqueLinks.map(u => `
+      ? (uniqueLinks.length > 1 ? `<div class="dm-section-actions"><button class="btn-ghost" data-action="copy-all-links">copy all links</button></div>` : '') +
+        uniqueLinks.map(u => `
         <div class="dm-link-row">
           <span class="dm-link-url">${escapeHtml(u)}</span>
+          <button class="dm-link-copy" data-action="copy-link" data-url="${escapeHtml(u)}" aria-label="Copy link">copy</button>
           <button class="dm-link-open" data-action="open-external" data-url="${escapeHtml(u)}">open ↗</button>
         </div>`).join('')
       : `<div class="dm-content" style="color:var(--mist-dim); font-size:12.5px;">No links found in this result.</div>`;
+
+    const emailSource = `${r.title || ''} ${r.snippet || ''} ${state.detailFullText || ''}`;
+    const emails = extractEmailsFromText(emailSource);
+    state.detailEmails = emails;
+    const emailsEl = document.getElementById('dmEmailsArea');
+    if(emailsEl){
+      emailsEl.innerHTML = emails.length
+        ? (emails.length > 1 ? `<div class="dm-section-actions"><button class="btn-ghost" data-action="copy-all-emails">copy all emails</button></div>` : '') +
+          emails.map(addr => `
+          <div class="dm-link-row">
+            <span class="dm-link-url">${escapeHtml(addr)}</span>
+            <button class="dm-link-copy" data-action="copy-email" data-email="${escapeHtml(addr)}" aria-label="Copy email">copy</button>
+            <button class="dm-link-open" data-action="open-external" data-url="mailto:${escapeHtml(addr)}">email ↗</button>
+          </div>`).join('')
+        : `<div class="dm-content" style="color:var(--mist-dim); font-size:12.5px;">No email addresses found in this result.</div>`;
+    }
   }catch(e){
     const fullEl = document.getElementById('dmFullContent');
     if(fullEl){ fullEl.textContent = 'Fetch failed: ' + e.message; fullEl.classList.remove('dm-loading'); }
     const linksEl = document.getElementById('dmLinksArea');
     if(linksEl){ linksEl.innerHTML = `<div class="dm-content" style="color:var(--mist-dim); font-size:12.5px;">Could not fetch links.</div>`; }
+    const emailsEl2 = document.getElementById('dmEmailsArea');
+    if(emailsEl2){ emailsEl2.innerHTML = `<div class="dm-content" style="color:var(--mist-dim); font-size:12.5px;">Could not fetch emails.</div>`; }
     state.detailFullText = '';
     state.detailLinks = [r.url];
+    state.detailEmails = [];
   }
 }
 
@@ -1211,6 +1329,26 @@ function showCopyToast(message){
   toast._hideTimer = setTimeout(() => toast.classList.remove('show'), 1800);
 }
 
+// Shared clipboard helper — used by copy-all-content, copy-link, copy-email, copy-all-links,
+// copy-all-emails, and the AI result copy button, so there's one place handling the
+// clipboard-API/execCommand fallback and the confirmation toast.
+async function copyPlainText(text, toastMessage){
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    showCopyToast(toastMessage || 'Copied to clipboard');
+  }catch(e){
+    showCopyToast('Copy failed — select text manually');
+  }
+}
+
 async function copyDetailContent(){
   const id = state.detailResultId;
   const r = id ? state.lastResultsById[id] : null;
@@ -1228,23 +1366,24 @@ async function copyDetailContent(){
     '',
     'Links:',
     ...(state.detailLinks || [r.url]),
+    '',
+    'Emails:',
+    ...(state.detailEmails && state.detailEmails.length ? state.detailEmails : ['(none found)']),
   ];
-  const text = parts.join('\n');
+  await copyPlainText(parts.join('\n'), 'Copied to clipboard');
+}
 
-  try{
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      await navigator.clipboard.writeText(text);
-    } else {
-      const ta = document.createElement('textarea');
-      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
-      document.body.appendChild(ta); ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
-    showCopyToast('Copied to clipboard');
-  }catch(e){
-    showCopyToast('Copy failed — select text manually');
-  }
+function copyLinkItem(url){
+  copyPlainText(url, 'Link copied');
+}
+function copyEmailItem(email){
+  copyPlainText(email, 'Email copied');
+}
+function copyAllLinks(){
+  copyPlainText((state.detailLinks || []).join('\n'), 'All links copied');
+}
+function copyAllEmails(){
+  copyPlainText((state.detailEmails || []).join('\n'), 'All emails copied');
 }
 
 /* ---- AI assist tools: interest email generator + screener explainer ----
@@ -1420,17 +1559,7 @@ async function runAiGenerate(){
 async function copyAiResult(){
   const el = document.getElementById('aiResultTextarea');
   if(!el) return;
-  try{
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      await navigator.clipboard.writeText(el.value);
-    } else {
-      el.select();
-      document.execCommand('copy');
-    }
-    showCopyToast('Copied to clipboard');
-  }catch(e){
-    showCopyToast('Copy failed — select text manually');
-  }
+  await copyPlainText(el.value, 'Copied to clipboard');
 }
 
 /* ---- wiring ---- */
@@ -1481,6 +1610,7 @@ document.addEventListener('click', (e)=>{
     case 'clear-search': clearSearch(); break;
     case 'run-search': runSearch(); break;
     case 'open-settings': openSettings(); break;
+    case 'set-theme': setTheme(id); break;
     case 'open-saved': openSaved(); break;
     case 'save-current-query': saveCurrentQuery(); break;
     case 'load-saved': loadSavedItem(id); break;
@@ -1494,6 +1624,10 @@ document.addEventListener('click', (e)=>{
     case 'open-detail': openResultDetail(id); break;
     case 'close-detail': closeResultDetail(); break;
     case 'copy-detail': copyDetailContent(); break;
+    case 'copy-link': e.stopPropagation(); copyLinkItem(el.dataset.url); break;
+    case 'copy-email': e.stopPropagation(); copyEmailItem(el.dataset.email); break;
+    case 'copy-all-links': e.stopPropagation(); copyAllLinks(); break;
+    case 'copy-all-emails': e.stopPropagation(); copyAllEmails(); break;
     case 'open-ai-tools': openAiTools(); break;
     case 'close-ai-tools': closeAiTools(); break;
     case 'switch-ai-tab': switchAiTab(id); break;
