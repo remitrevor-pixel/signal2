@@ -9,6 +9,7 @@ const fetchChain = require('./providers/fetchChain');
 const quota = require('./quota');
 const keywordStore = require('./keywordStore');
 const keywordBankStore = require('./keywordBankStore');
+const aiAssist = require('./aiAssist');
 
 // ---- helpers ----
 
@@ -310,6 +311,30 @@ router.delete('/keyword-bank/:id', async (req, res) => {
     const removed = await keywordBankStore.remove(req.params.id);
     if (!removed) return res.status(404).json({ error: 'not found' });
     res.json({ removed: true });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// ---- AI assist: interest email generator + screener explainer ----
+// Both accept { text?: string, image?: { base64: string, mimeType: string } } — at least one
+// of text/image is required. Image is a raw base64 string (no "data:image/..." prefix).
+
+router.post('/ai/interest-email', async (req, res) => {
+  const { text, image } = req.body || {};
+  try {
+    const result = await aiAssist.generateInterestEmail({ text, image });
+    res.json(result);
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+router.post('/ai/screener-explain', async (req, res) => {
+  const { text, image } = req.body || {};
+  try {
+    const result = await aiAssist.explainScreener({ text, image });
+    res.json(result);
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
