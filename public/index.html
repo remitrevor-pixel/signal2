@@ -332,6 +332,35 @@
   .dm-copy-toast{position:fixed; left:50%; bottom:calc(24px + var(--safe-b)); transform:translateX(-50%) translateY(8px); opacity:0; background:var(--panel-2); border:1px solid var(--cyan-dim); color:var(--cyan); font-size:12.5px; padding:9px 16px; border-radius:20px; z-index:99; transition:opacity .18s, transform .18s; pointer-events:none;}
   .dm-copy-toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
 
+  /* ===== AI Tools modal ===== */
+  .ai-tabs{display:flex; gap:8px; margin-bottom:16px;}
+  .ai-tab{flex:1; text-align:center; padding:11px 8px; border-radius:10px; background:var(--panel-2); border:1px solid var(--hairline-soft); font-size:12px; font-family:'Sora',sans-serif; font-weight:600; color:var(--mist); cursor:pointer; -webkit-user-select:none; user-select:none;}
+  .ai-tab.active{background:var(--cyan-soft); border-color:var(--cyan-dim); color:var(--cyan);}
+  .ai-disclaimer{font-size:11px; color:var(--mist-dim); line-height:1.55; margin:0 2px 16px;}
+  .ai-upload-area{border:1.5px dashed var(--hairline-soft); border-radius:var(--r-md); padding:22px 16px; text-align:center; margin-bottom:12px;}
+  .ai-upload-area.has-image{padding:10px;}
+  .ai-upload-hint{font-size:11.5px; color:var(--mist-dim); margin-bottom:12px;}
+  .ai-upload-btn{background:var(--panel-2); border:1px solid var(--hairline-soft); border-radius:10px; padding:10px 18px; font-size:12.5px; color:var(--frost); font-family:'Sora',sans-serif; font-weight:600;}
+  .ai-thumb-wrap{position:relative; display:block; line-height:0;}
+  .ai-thumb{max-width:100%; max-height:220px; border-radius:10px; display:block; margin:0 auto;}
+  .ai-thumb-remove{position:absolute; top:8px; right:8px; background:rgba(8,11,20,.85); border:none; color:#fff; width:28px; height:28px; border-radius:50%; font-size:14px;}
+  .ai-textarea{width:100%; min-height:88px; background:var(--panel-2); border:1px solid var(--hairline-soft); border-radius:var(--r-sm); padding:12px; color:var(--frost); font-family:'Inter',sans-serif; font-size:13px; resize:vertical; margin-bottom:14px; box-sizing:border-box;}
+  .ai-textarea:focus{outline:none; border-color:var(--cyan-dim);}
+  .ai-generate-btn{width:100%; padding:14px; border-radius:12px; border:none; background:linear-gradient(135deg,var(--cyan),var(--violet)); color:#04121b; font-family:'Sora',sans-serif; font-weight:700; font-size:13.5px; cursor:pointer;}
+  .ai-generate-btn:disabled{opacity:.45;}
+  .ai-loading{display:flex; align-items:center; gap:10px; color:var(--mist-dim); font-size:12.5px; font-family:'JetBrains Mono',monospace; padding:18px 2px;}
+  .ai-spinner{width:16px; height:16px; border-radius:50%; border:2px solid var(--hairline-soft); border-top-color:var(--cyan); animation:aiSpin .8s linear infinite; flex-shrink:0;}
+  @keyframes aiSpin{to{transform:rotate(360deg);}}
+  .ai-result-label{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--mist-dim); text-transform:uppercase; letter-spacing:.06em; margin:18px 0 8px;}
+  .ai-result-textarea{width:100%; min-height:220px; background:var(--panel-2); border:1px solid var(--hairline-soft); border-radius:var(--r-sm); padding:14px; color:var(--frost); font-family:'Inter',sans-serif; font-size:13.5px; line-height:1.6; resize:vertical; margin-bottom:14px; box-sizing:border-box;}
+  .ai-result-textarea:focus{outline:none; border-color:var(--cyan-dim);}
+  .ai-suggestions{background:var(--panel-2); border:1px solid var(--hairline-soft); border-radius:var(--r-sm); padding:13px 14px; margin-bottom:14px;}
+  .ai-suggestion-item{font-size:12.5px; color:var(--frost); padding:5px 0; display:flex; gap:8px; line-height:1.5;}
+  .ai-suggestion-item::before{content:'→'; color:var(--cyan); flex-shrink:0;}
+  .ai-error-box{background:rgba(255,107,129,.08); border:1px solid rgba(255,107,129,.3); border-radius:var(--r-sm); padding:13px 14px; color:var(--flare); font-size:12.5px; margin-bottom:14px; line-height:1.5;}
+  .ai-result-actions{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;}
+  .ai-result-actions button{flex:1; min-width:120px;}
+
   .acct-row{display:flex; align-items:center; gap:10px; padding:10px 4px; border-bottom:1px solid var(--hairline-soft);}
   .acct-row:last-child{border-bottom:none;}
   .acct-row .plat-mono{width:24px; height:24px; font-size:11px;}
@@ -352,6 +381,9 @@
     <div><div class="name">SIGNAL</div><div class="sub">Research Console</div></div>
   </div>
   <div class="topbar-actions">
+    <button class="icon-btn" id="aiToolsBtn" data-action="open-ai-tools" aria-label="AI assist tools">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M12 2l1.6 5.2L19 9l-5.4 1.8L12 16l-1.6-5.2L5 9l5.4-1.8L12 2z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M19 15l.8 2.6L22 18.5l-2.2.9L19 22l-.8-2.6-2.2-.9 2.2-.9L19 15z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+    </button>
     <button class="icon-btn" id="settingsBtn" data-action="open-settings" aria-label="Settings & quota">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.13.32.4.6.71.76.31.15.66.2 1 .15H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.8"/></svg>
     </button>
@@ -437,6 +469,7 @@ let state = {
   timeRange: 'all', sort: 'relevance', query: '', searched: false,
   launcherLinks: {}, openPanel: null, savedItems: [], lastResultsById: {},
   keywordBankItems: [], detailResultId: null, detailFullText: '', detailLinks: [],
+  aiTab: 'email', aiImage: null, aiText: '', aiResult: null, aiError: null, aiLoading: false,
 };
 
 /* ---- client-side parser preview (real filtering happens server-side) ---- */
@@ -1214,6 +1247,192 @@ async function copyDetailContent(){
   }
 }
 
+/* ---- AI assist tools: interest email generator + screener explainer ----
+   Screener explainer deliberately only ever explains what a question is checking for — it
+   never suggests or implies answers. That boundary is enforced server-side in the prompt, not
+   just in this UI, so it holds regardless of how this panel is used. */
+
+const AI_TABS = {
+  email: {
+    label: 'Interest email',
+    hint: 'Upload a photo of the flyer/listing, or paste its text below. I\'ll draft a short, genuine expression of interest you can review and send.',
+    placeholder: 'Or paste the flyer/listing text here…',
+    endpoint: '/api/ai/interest-email',
+    resultLabel: 'Draft email',
+    generateLabel: 'Generate email',
+  },
+  screener: {
+    label: 'Screener explainer',
+    hint: 'Upload a photo of the screener questions, or paste them below. I\'ll explain what each question is likely checking for — I won\'t suggest or guess answers, just help you judge honestly whether you fit.',
+    placeholder: 'Or paste the screener questions here…',
+    endpoint: '/api/ai/screener-explain',
+    resultLabel: 'What this screener is checking for',
+    generateLabel: 'Explain this screener',
+  },
+};
+
+function aiModalShell(){
+  let modal = document.getElementById('aiModal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.className = 'detail-modal';
+    modal.id = 'aiModal';
+    document.body.appendChild(modal);
+  }
+  return modal;
+}
+
+function openAiTools(){
+  state.aiResult = null;
+  state.aiError = null;
+  state.aiLoading = false;
+  renderAiToolsPanel();
+  const modal = aiModalShell();
+  modal.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeAiTools(){
+  const modal = document.getElementById('aiModal');
+  if(modal) modal.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function switchAiTab(tab){
+  state.aiTab = tab;
+  state.aiResult = null;
+  state.aiError = null;
+  renderAiToolsPanel();
+}
+
+function renderAiToolsPanel(){
+  const modal = aiModalShell();
+  const cfg = AI_TABS[state.aiTab];
+
+  const uploadHtml = state.aiImage
+    ? `<div class="ai-upload-area has-image">
+        <div class="ai-thumb-wrap">
+          <img class="ai-thumb" src="data:${state.aiImage.mimeType};base64,${state.aiImage.base64}" alt="Uploaded photo">
+          <button class="ai-thumb-remove" data-action="remove-ai-image" aria-label="Remove photo">✕</button>
+        </div>
+      </div>`
+    : `<div class="ai-upload-area">
+        <div class="ai-upload-hint">Take a photo or choose one from your gallery</div>
+        <label class="ai-upload-btn" for="aiImageInput">Upload photo</label>
+        <input type="file" id="aiImageInput" accept="image/*" style="display:none;">
+      </div>`;
+
+  let resultHtml = '';
+  if(state.aiLoading){
+    resultHtml = `<div class="ai-loading"><span class="ai-spinner"></span> analyzing…</div>`;
+  } else if(state.aiError){
+    resultHtml = `<div class="ai-error-box">${escapeHtml(state.aiError)}</div>`;
+  } else if(state.aiResult){
+    resultHtml = `
+      <div class="ai-result-label">${escapeHtml(cfg.resultLabel)} — edit anything before you use it</div>
+      <textarea class="ai-result-textarea" id="aiResultTextarea">${escapeHtml(state.aiResult.body)}</textarea>
+      <div class="ai-result-actions">
+        <button class="btn-ghost" data-action="copy-ai-result">copy</button>
+        <button class="btn-ghost primary" data-action="run-ai-generate">regenerate</button>
+      </div>
+      ${state.aiResult.suggestions && state.aiResult.suggestions.length ? `
+      <div class="ai-suggestions">
+        <div class="ai-result-label" style="margin-top:0;">Suggested next steps</div>
+        ${state.aiResult.suggestions.map(s => `<div class="ai-suggestion-item">${escapeHtml(s)}</div>`).join('')}
+      </div>` : ''}
+    `;
+  }
+
+  modal.innerHTML = `
+    <div class="dm-head">
+      <div class="dm-head-meta">
+        <div class="dm-full-title">AI assist</div>
+      </div>
+      <button class="dm-close" data-action="close-ai-tools" aria-label="Close">✕</button>
+    </div>
+    <div class="dm-body">
+      <div class="ai-tabs">
+        ${Object.keys(AI_TABS).map(id => `<div class="ai-tab ${state.aiTab===id?'active':''}" data-action="switch-ai-tab" data-id="${id}">${escapeHtml(AI_TABS[id].label)}</div>`).join('')}
+      </div>
+      <div class="ai-disclaimer">${escapeHtml(cfg.hint)}</div>
+      ${uploadHtml}
+      <textarea class="ai-textarea" id="aiTextInput" placeholder="${escapeHtml(cfg.placeholder)}">${escapeHtml(state.aiText)}</textarea>
+      <button class="ai-generate-btn" data-action="run-ai-generate" ${state.aiLoading ? 'disabled' : ''}>${state.aiLoading ? 'Analyzing…' : cfg.generateLabel}</button>
+      ${resultHtml}
+    </div>`;
+}
+
+function handleAiImageFile(file){
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = reader.result; // "data:image/jpeg;base64,AAAA..."
+    const match = dataUrl.match(/^data:([^;]+);base64,(.*)$/s);
+    if(!match) return;
+    state.aiImage = { mimeType: match[1], base64: match[2] };
+    renderAiToolsPanel();
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeAiImage(){
+  state.aiImage = null;
+  renderAiToolsPanel();
+}
+
+async function runAiGenerate(){
+  const textEl = document.getElementById('aiTextInput');
+  const text = textEl ? textEl.value.trim() : state.aiText.trim();
+  state.aiText = text;
+
+  if(!text && !state.aiImage){
+    state.aiError = 'Upload a photo or paste some text first.';
+    renderAiToolsPanel();
+    return;
+  }
+
+  state.aiLoading = true;
+  state.aiError = null;
+  state.aiResult = null;
+  renderAiToolsPanel();
+
+  const cfg = AI_TABS[state.aiTab];
+  try{
+    const res = await fetch(API_BASE + cfg.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text || undefined, image: state.aiImage || undefined }),
+    });
+    const data = await res.json();
+    if(!res.ok || data.error){
+      state.aiError = data.error || `Request failed (${res.status})`;
+    } else {
+      state.aiResult = data;
+    }
+  }catch(e){
+    state.aiError = 'Request failed: ' + e.message;
+  }finally{
+    state.aiLoading = false;
+    renderAiToolsPanel();
+  }
+}
+
+async function copyAiResult(){
+  const el = document.getElementById('aiResultTextarea');
+  if(!el) return;
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(el.value);
+    } else {
+      el.select();
+      document.execCommand('copy');
+    }
+    showCopyToast('Copied to clipboard');
+  }catch(e){
+    showCopyToast('Copy failed — select text manually');
+  }
+}
+
 /* ---- wiring ---- */
 document.getElementById('searchInput').addEventListener('input', (e)=>{
   document.getElementById('clearBtn').style.display = e.target.value ? 'flex' : 'none';
@@ -1221,6 +1440,9 @@ document.getElementById('searchInput').addEventListener('input', (e)=>{
 });
 document.getElementById('searchInput').addEventListener('focus', ()=>document.getElementById('searchWrap').classList.add('focused'));
 document.getElementById('searchInput').addEventListener('blur', ()=>document.getElementById('searchWrap').classList.remove('focused'));
+document.addEventListener('input', (e)=>{
+  if(e.target.id === 'aiTextInput') state.aiText = e.target.value;
+});
 document.getElementById('searchInput').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.target.blur(); runSearch(); } });
 
 // Single delegated click handler for every interactive element in the app — deliberately
@@ -1272,21 +1494,33 @@ document.addEventListener('click', (e)=>{
     case 'open-detail': openResultDetail(id); break;
     case 'close-detail': closeResultDetail(); break;
     case 'copy-detail': copyDetailContent(); break;
+    case 'open-ai-tools': openAiTools(); break;
+    case 'close-ai-tools': closeAiTools(); break;
+    case 'switch-ai-tab': switchAiTab(id); break;
+    case 'remove-ai-image': removeAiImage(); break;
+    case 'run-ai-generate': runAiGenerate(); break;
+    case 'copy-ai-result': copyAiResult(); break;
   }
 });
 
 document.addEventListener('change', (e)=>{
-  const el = e.target.closest('[data-action="toggle-signed-in"]');
-  if(!el) return;
-  const signedIn = safeStorageGet('signal_signed_in');
-  signedIn[el.dataset.id] = el.checked;
-  safeStorageSet('signal_signed_in', signedIn);
+  const signedInEl = e.target.closest('[data-action="toggle-signed-in"]');
+  if(signedInEl){
+    const signedIn = safeStorageGet('signal_signed_in');
+    signedIn[signedInEl.dataset.id] = signedInEl.checked;
+    safeStorageSet('signal_signed_in', signedIn);
+    return;
+  }
+  if(e.target.id === 'aiImageInput' && e.target.files && e.target.files[0]){
+    handleAiImageFile(e.target.files[0]);
+  }
 });
 
 document.getElementById('filterBackdrop').addEventListener('click', closePanel);
 document.addEventListener('keydown', (e)=>{
   if(e.key==='Escape'){
-    if(document.getElementById('detailModal')?.classList.contains('open')) closeResultDetail();
+    if(document.getElementById('aiModal')?.classList.contains('open')) closeAiTools();
+    else if(document.getElementById('detailModal')?.classList.contains('open')) closeResultDetail();
     else closePanel();
   }
 });
