@@ -4,6 +4,7 @@ const router = express.Router();
 const { PLATFORMS, COUNTRIES } = require('./config');
 const { parseQuery, matchesQuery, toSearchString } = require('./queryParser');
 const reddit = require('./providers/reddit');
+const redditScrape = require('./providers/reddit-scrape');
 const serper = require('./providers/serper-multi');
 const fetchChain = require('./providers/fetchChain');
 const quota = require('./quota');
@@ -49,13 +50,42 @@ function withinTimeRange(minsAgo, rangeId) {
 // ---- platform result builders ----
 
 async function getRedditResults(parsed, searchString, countryList, timeRange) {
+  const query = searchString || parsed.positiveWords.join(' OR ') || 'research study';
+
+  // Primary: direct old.reddit.com scrape — real-time data straight from Reddit, no Google
+  // indexing lag, no missing recent/low-engagement posts. Reddit's own t= param does the time
+  // filtering server-side here, which is why these results skip withinTimeRange() below —
+  // re-checking an already-Reddit-filtered result against our own relative-date guesser would
+  // just throw away good results whose exact timestamp we didn't parse.
   try {
-    // Route through the same multi-key Serper path as every other search-backed platform
-    // (site:reddit.com, real dates from Google's index, respects the selected time filter) —
-    // rather than a bespoke Reddit-only call that used the wrong Google vertical (News, not
-    // web) and fabricated random timestamps/engagement instead of using real data.
+    const redditTimeMap = { all: undefined, '1h': 'hour', '1d': 'day', '1w': 'week', '1m': 'month' };
+    const posts = await redditScrape.searchReddit(query, { sort: 'relevance', limit: 40, timeRange: redditTimeMap[timeRange] });
+    return posts
+      .filter(p => matchesQuery(parsed, p.title))
+      .map(p => {
+        const permalink = p.permalink && p.permalink.startsWith('http') ? p.permalink : `https://reddit.com${p.permalink || ''}`;
+        return {
+          id: `reddit_${p.id || permalink}`,
+          platform: 'reddit',
+          country: null, // Reddit content isn't reliably geo-taggable; shown regardless of country filter
+          title: p.title,
+          snippet: `by u/${p.author || 'unknown'}${p.subreddit ? ' in r/' + p.subreddit : ''} · ${p.score} points · ${p.numComments} comments`,
+          source: p.subreddit ? `r/${p.subreddit}` : 'reddit',
+          url: permalink,
+          minsAgo: null, // unknown from the search-results page specifically — see reddit-scrape.js
+          discovery: false,
+        };
+      });
+  } catch (scrapeErr) {
+    console.error('Reddit direct scrape failed, falling back to Serper:', scrapeErr.message);
+  }
+
+  // Fallback: Serper-based platformDiscovery (Google's index of reddit.com) — only reached if
+  // the direct scrape above threw (Reddit blocked it and the Scrape.do proxy fallback also
+  // failed, or old Reddit's HTML structure changed and broke the selectors).
+  try {
     const firstCountry = countryList && countryList[0] ? COUNTRIES[countryList[0]] : null;
-    const raw = await serper.platformDiscovery(searchString || parsed.positiveWords.join(' OR ') || 'research study', 'reddit.com', firstCountry, timeRange);
+    const raw = await serper.platformDiscovery(query, 'reddit.com', firstCountry, timeRange);
     return raw
       .filter(r => matchesQuery(parsed, `${r.title} ${r.snippet}`))
       .map((r, i) => {
@@ -66,7 +96,7 @@ async function getRedditResults(parsed, searchString, countryList, timeRange) {
         return {
           id: `reddit_${i}_${Buffer.from(r.url).toString('base64').slice(0, 8)}`,
           platform: 'reddit',
-          country: null, // Reddit content isn't reliably geo-taggable; shown regardless of country filter
+          country: null,
           title: r.title,
           snippet: r.snippet,
           source: `r/${subreddit}`,
@@ -241,10 +271,42 @@ router.get('/search', async (req, res) => {
 
 // On-demand full content fetch — only called when the user clicks "expand" on a specific result.
 // Pass the result's country so the fetch is geo-targeted (helps with geo-restricted content).
+// Formats a reddit-scrape.js fetchPost() result into the same kind of readable text the
+// generic fetchChain produces, so the frontend's expand/detail views don't need special-casing.
+function formatRedditPost(post) {
+  const lines = [];
+  lines.push(post.title || '(no title)');
+  if (post.subreddit) lines.push(`r/${post.subreddit} · posted by u/${post.author || 'unknown'} · ${post.score} points`);
+  if (post.selftext) { lines.push(''); lines.push(post.selftext); }
+  if (post.comments && post.comments.length) {
+    lines.push('');
+    lines.push(`--- ${post.comments.length} top-level comments ---`);
+    const renderComment = (c, depth) => {
+      const indent = '  '.repeat(depth);
+      lines.push(`${indent}u/${c.author || '[deleted]'} (${c.score} pts): ${c.body}`);
+      (c.replies || []).forEach(r => renderComment(r, depth + 1));
+    };
+    post.comments.forEach(c => renderComment(c, 0));
+  }
+  return lines.join('\n');
+}
+
 router.post('/expand', async (req, res) => {
   const { url, country } = req.body || {};
   if (!url) return res.status(400).json({ error: 'url required' });
   try {
+    // Reddit URLs get real post + full comment thread via the direct scraper instead of the
+    // generic fetch chain, which has no special handling for Reddit's markup and tends to
+    // return messy, hard-to-read raw HTML for it.
+    if (redditScrape.isRedditUrl(url)) {
+      try {
+        const post = await redditScrape.fetchPost(url);
+        return res.json({ provider: 'reddit-scrape', text: formatRedditPost(post), title: post.title, fromCache: false, sourceUrl: url, countryCode: null });
+      } catch (redditErr) {
+        console.error('Reddit direct post fetch failed, falling back to generic fetch chain:', redditErr.message);
+        // fall through to the generic chain below
+      }
+    }
     const page = await fetchChain.fetchPage(url, country);
     res.json(page);
   } catch (e) {
