@@ -14,7 +14,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+// Higher limit than the 100kb default — needed for base64-encoded screener/flyer photos.
+app.use(express.json({ limit: '15mb' }));
 app.use('/api', routes);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
