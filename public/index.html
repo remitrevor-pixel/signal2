@@ -232,6 +232,8 @@
   .results-meta .sortlabel{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--mist-dim);}
   .errors-box{background:var(--flare-soft); border:1px solid var(--flare-dim); border-radius:var(--r-md); padding:10px 12px; font-size:12px; color:var(--frost); margin-top:10px; line-height:1.6;}
   .errors-box .err-line{padding:3px 0;}
+  .fallback-notice{background:var(--cyan-soft); border:1px solid var(--cyan-dim); border-radius:var(--r-md); padding:10px 12px; font-size:12px; color:var(--frost); margin-top:10px; line-height:1.5;}
+  .fallback-notice b{color:var(--cyan);}
   .errors-details{margin-top:8px;}
   .errors-details summary{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--mist-dim); cursor:pointer; -webkit-user-select:none; user-select:none;}
   .errors-details[open] summary{margin-bottom:6px;}
@@ -1121,14 +1123,15 @@ function renderErrorsBox(errors){
 }
 
 function renderResults(data){
-  const {results=[], errors=[]} = data;
+  const {results=[], errors=[], meta={}} = data;
   state.lastResultsById = {};
   results.forEach(r => { state.lastResultsById[r.id] = r; });
   document.getElementById('sortLabel').textContent = state.sort==='relevance' ? 'BY RELEVANCE' : 'BY NEWEST';
   document.getElementById('resultsCount').innerHTML = `<b>${results.length}</b> real result${results.length===1?'':'s'} · <b>${state.platforms.size}</b> platform${state.platforms.size===1?'':'s'}`;
 
-  document.getElementById('errorsArea').innerHTML = errors.length
-    ? renderErrorsBox(errors) : '';
+  document.getElementById('errorsArea').innerHTML =
+    (meta.fallbackApplied ? `<div class="fallback-notice">🔍 ${escapeHtml(meta.fallbackNote || 'No exact matches — showing broader results instead.')} <b>Tip:</b> switch to "AND / OR logic" mode anytime for full control.</div>` : '') +
+    (errors.length ? renderErrorsBox(errors) : '');
 
   const launcherOnlyCards = Object.entries(state.launcherLinks)
     .filter(([key]) => !key.startsWith('craigslist_'))
