@@ -236,18 +236,11 @@ function buildLauncherUrl(platformId, searchString, country) {
 
 // ---- routes ----
 
-router.get('/search', async (req, res) => {
-  const { query = '', platforms = '', countries = '', timeRange = 'all', sort = 'relevance', matchMode = 'phrase' } = req.query;
-  const platformList = platforms ? platforms.split(',').filter(Boolean) : [];
-  const countryList = countries ? countries.split(',').filter(Boolean) : [];
-
-  if (platformList.length === 0 || countryList.length === 0) {
-    return res.json({ results: [], errors: [], meta: { note: 'Select at least one platform and one country.' } });
-  }
-
-  const parsed = parseQuery(query, { exactPhrase: matchMode !== 'logic' });
-  const searchString = toSearchString(parsed) || query.trim();
-
+// Runs one complete search pass across all selected platforms and returns collected results,
+// errors, and launcher links. Pulled out into its own function so the route handler below can
+// run it twice — once normally, once as an automatic fallback — without duplicating the platform
+// dispatch logic.
+async function runSearchPass(platformList, parsed, searchString, countryList, timeRange, sort) {
   let allResults = [];
   const errors = [];
   const launcherLinks = {};
@@ -305,11 +298,51 @@ router.get('/search', async (req, res) => {
     allResults.sort((a, b) => score(b) - score(a));
   }
 
+  return { results: allResults, errors, launcherLinks };
+}
+
+router.get('/search', async (req, res) => {
+  const { query = '', platforms = '', countries = '', timeRange = 'all', sort = 'relevance', matchMode = 'phrase' } = req.query;
+  const platformList = platforms ? platforms.split(',').filter(Boolean) : [];
+  const countryList = countries ? countries.split(',').filter(Boolean) : [];
+
+  if (platformList.length === 0 || countryList.length === 0) {
+    return res.json({ results: [], errors: [], meta: { note: 'Select at least one platform and one country.' } });
+  }
+
+  const wantsExactPhrase = matchMode !== 'logic' && query.trim().includes(' ');
+  const parsed = parseQuery(query, { exactPhrase: wantsExactPhrase });
+  const searchString = toSearchString(parsed) || query.trim();
+
+  let { results, errors, launcherLinks } = await runSearchPass(platformList, parsed, searchString, countryList, timeRange, sort);
+
+  // Automatic fallback: an exact phrase is a narrow ask — real posts phrase things differently
+  // ("gift card" vs "gift-card" is already handled by matchesQuery's separator-tolerant check,
+  // but plenty of genuine near-matches won't share the exact wording at all). Rather than
+  // showing a wall of empty "no matches" cards, silently broaden to AND-logic on the same words
+  // and clearly label the results as a fallback so the person knows why they're seeing it.
+  let fallbackApplied = false;
+  if (wantsExactPhrase && results.length === 0) {
+    const fallbackParsed = parseQuery(query, { exactPhrase: false });
+    const fallbackSearchString = toSearchString(fallbackParsed) || query.trim();
+    const fallbackPass = await runSearchPass(platformList, fallbackParsed, fallbackSearchString, countryList, timeRange, sort);
+    if (fallbackPass.results.length > 0) {
+      results = fallbackPass.results;
+      errors = fallbackPass.errors;
+      launcherLinks = fallbackPass.launcherLinks;
+      fallbackApplied = true;
+    }
+  }
+
   res.json({
-    results: allResults,
+    results,
     errors,
     launcherLinks,
-    meta: { searchString, quota: quota.summary() },
+    meta: {
+      searchString, quota: quota.summary(),
+      fallbackApplied,
+      fallbackNote: fallbackApplied ? `No exact matches for "${query.trim()}" — showing broader results for each word instead.` : null,
+    },
   });
 });
 
