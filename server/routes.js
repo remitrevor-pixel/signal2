@@ -5,6 +5,7 @@ const { PLATFORMS, COUNTRIES } = require('./config');
 const { parseQuery, matchesQuery, toSearchString } = require('./queryParser');
 const reddit = require('./providers/reddit');
 const redditScrape = require('./providers/reddit-scrape');
+const craigslistScrape = require('./providers/craigslist-scrape');
 const serper = require('./providers/serper-multi');
 const fetchChain = require('./providers/fetchChain');
 const quota = require('./quota');
@@ -115,6 +116,44 @@ async function getRedditResults(parsed, searchString, countryList, timeRange) {
   }
 }
 
+async function getCraigslistResults(parsed, searchString, countryList, timeRange) {
+  const cities = [...new Set(countryList.flatMap(cKey => (COUNTRIES[cKey] && COUNTRIES[cKey].craigslistCities) || []))];
+  const query = searchString || parsed.positiveWords.join(' OR ') || 'research study';
+
+  // Primary: Craigslist's own RSS feeds — real, sanctioned, structurally clean by construction
+  // (an RSS <item> can't contain sidebar/nav bleed-in the way a scraped HTML page could).
+  if (cities.length > 0) {
+    try {
+      const items = await craigslistScrape.searchCraigslist(cities, query, { limit: 25 });
+      const results = items
+        .filter(it => matchesQuery(parsed, `${it.title} ${it.description}`))
+        .map((it, i) => {
+          const minsAgo = it.createdUtc ? Math.max(0, Math.floor((Date.now() / 1000 - it.createdUtc) / 60)) : null;
+          const cKey = Object.keys(COUNTRIES).find(k => (COUNTRIES[k].craigslistCities || []).includes(it.city)) || null;
+          return {
+            id: `craigslist_${i}_${Buffer.from(it.link).toString('base64').slice(0, 8)}`,
+            platform: 'craigslist',
+            country: cKey,
+            title: it.title,
+            snippet: it.description,
+            source: `${it.city}.craigslist.org`,
+            url: it.link,
+            minsAgo,
+            discovery: false,
+          };
+        })
+        .filter(r => withinTimeRange(r.minsAgo, timeRange));
+      return { results, errors: [] };
+    } catch (scrapeErr) {
+      console.error('Craigslist RSS search failed, falling back to Serper:', scrapeErr.message);
+    }
+  }
+
+  // Fallback: Serper-based discovery (site:craigslist.org) — only reached if the RSS approach
+  // above threw, or no country in the current selection has any mapped Craigslist cities.
+  return getSearchBackedResults('craigslist', parsed, searchString, countryList, timeRange);
+}
+
 async function getSearchBackedResults(platformId, parsed, searchString, countries, timeRange) {
   const results = [];
   const errors = [];
@@ -198,7 +237,7 @@ function buildLauncherUrl(platformId, searchString, country) {
 // ---- routes ----
 
 router.get('/search', async (req, res) => {
-  const { query = '', platforms = '', countries = '', timeRange = 'all', sort = 'relevance' } = req.query;
+  const { query = '', platforms = '', countries = '', timeRange = 'all', sort = 'relevance', matchMode = 'phrase' } = req.query;
   const platformList = platforms ? platforms.split(',').filter(Boolean) : [];
   const countryList = countries ? countries.split(',').filter(Boolean) : [];
 
@@ -206,7 +245,7 @@ router.get('/search', async (req, res) => {
     return res.json({ results: [], errors: [], meta: { note: 'Select at least one platform and one country.' } });
   }
 
-  const parsed = parseQuery(query);
+  const parsed = parseQuery(query, { exactPhrase: matchMode !== 'logic' });
   const searchString = toSearchString(parsed) || query.trim();
 
   let allResults = [];
@@ -229,8 +268,9 @@ router.get('/search', async (req, res) => {
     }
 
     if (plat.mode === 'search+fetch') {
-      // craigslist: discovery via Serper (site:craigslist.org), full content only fetched on /expand
-      const { results, errors: errs } = await getSearchBackedResults(platformId, parsed, searchString, countryList, timeRange);
+      // craigslist: real RSS-based search first (see craigslist-scrape.js), falls back to
+      // Serper discovery only if that fails. Full posting content still only fetched on /expand.
+      const { results, errors: errs } = await getCraigslistResults(parsed, searchString, countryList, timeRange);
       allResults.push(...results);
       errors.push(...errs);
       countryList.forEach(cKey => {
@@ -295,6 +335,19 @@ function formatRedditPost(post) {
   return lines.join('\n');
 }
 
+// Formats a craigslist-scrape.js fetchPosting() result into readable text, same purpose as
+// formatRedditPost above.
+function formatCraigslistPosting(p) {
+  const lines = [];
+  lines.push(p.title || '(no title)');
+  const meta = [p.price, p.location].filter(Boolean).join(' · ');
+  if (meta) lines.push(meta);
+  if (p.attrs && p.attrs.length) lines.push(p.attrs.join(' · '));
+  lines.push('');
+  lines.push(p.body || '(no posting text found)');
+  return lines.join('\n');
+}
+
 router.post('/expand', async (req, res) => {
   const { url, country } = req.body || {};
   if (!url) return res.status(400).json({ error: 'url required' });
@@ -308,6 +361,17 @@ router.post('/expand', async (req, res) => {
         return res.json({ provider: 'reddit-scrape', text: formatRedditPost(post), title: post.title, fromCache: false, sourceUrl: url, countryCode: null });
       } catch (redditErr) {
         console.error('Reddit direct post fetch failed, falling back to generic fetch chain:', redditErr.message);
+        // fall through to the generic chain below
+      }
+    }
+    // Same idea for Craigslist: scoped extraction of just the posting's own fields, instead of
+    // the generic chain stripping the whole page (nav, "also see" related postings, footer).
+    if (craigslistScrape.isCraigslistUrl(url)) {
+      try {
+        const posting = await craigslistScrape.fetchPosting(url);
+        return res.json({ provider: 'craigslist-scrape', text: formatCraigslistPosting(posting), title: posting.title, fromCache: false, sourceUrl: url, countryCode: null });
+      } catch (clErr) {
+        console.error('Craigslist direct posting fetch failed, falling back to generic fetch chain:', clErr.message);
         // fall through to the generic chain below
       }
     }
