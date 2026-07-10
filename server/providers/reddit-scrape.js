@@ -95,27 +95,61 @@ function parseListingThings($, limit) {
   return posts;
 }
 
-/** Parses search-results-page rows, which use a different wrapper than listings. */
+/** Parses search-results-page rows. Each result is a .search-result-link div, but — same as
+ *  listing pages — it sits inside a div.thing[data-fullname] wrapper that carries the real
+ *  data-timestamp/data-score/data-author attributes. Reading only the inner div (as an earlier
+ *  version of this did) meant every search result showed "date unknown" even though Reddit
+ *  sends the real timestamp right there on the outer element. */
 function parseSearchResults($, limit) {
   const results = [];
-  $('div.search-result-link').each((_, el) => {
+
+  $('div.thing[data-fullname]').each((_, el) => {
     if (results.length >= limit) return;
-    const $el = $(el);
-    const titleLink = $el.find('a.search-title').first();
-    const href = titleLink.attr('href') || '';
-    const scoreText = $el.find('.search-score').first().text().trim(); // e.g. "42 points"
-    const commentsText = $el.find('.search-comments').first().text().trim(); // e.g. "13 comments"
+    const $thing = $(el);
+    const $link = $thing.find('.search-result-link').first();
+    if ($link.length === 0) return; // not a search-result row
+
+    const titleLink = $link.find('a.search-title').first();
+    const href = titleLink.attr('href') || $thing.attr('data-permalink') || '';
+    const scoreText = $link.find('.search-score').first().text().trim();
+    const commentsText = $link.find('.search-comments').first().text().trim();
 
     results.push({
-      id: $el.attr('data-fullname') || href,
+      id: $thing.attr('data-fullname') || href,
       title: titleLink.text().trim(),
       permalink: href,
-      author: $el.attr('data-author') || $el.find('.search-author a').first().text().trim() || null,
-      score: parseInt(scoreText, 10) || 0,
-      numComments: parseInt(commentsText, 10) || 0,
-      subreddit: $el.attr('data-subreddit') || ($el.find('.search-subreddit-link').first().text().trim() || '').replace(/^r\//, ''),
+      author: $thing.attr('data-author') || $link.find('.search-author a').first().text().trim() || null,
+      score: Number($thing.attr('data-score')) || parseInt(scoreText, 10) || 0,
+      numComments: Number($thing.attr('data-comments-count')) || parseInt(commentsText, 10) || 0,
+      createdUtc: Number($thing.attr('data-timestamp')) / 1000 || null,
+      subreddit: $thing.attr('data-subreddit') || ($link.find('.search-subreddit-link').first().text().trim() || '').replace(/^r\//, ''),
     });
   });
+
+  // Fallback: if old Reddit's search page doesn't actually nest .search-result-link inside a
+  // .thing wrapper (structure differs from what listing pages use), fall back to scanning the
+  // inner div directly — no timestamp, but search still works instead of silently returning 0.
+  if (results.length === 0) {
+    $('div.search-result-link').each((_, el) => {
+      if (results.length >= limit) return;
+      const $el = $(el);
+      const titleLink = $el.find('a.search-title').first();
+      const href = titleLink.attr('href') || '';
+      const scoreText = $el.find('.search-score').first().text().trim();
+      const commentsText = $el.find('.search-comments').first().text().trim();
+      results.push({
+        id: $el.attr('data-fullname') || href,
+        title: titleLink.text().trim(),
+        permalink: href,
+        author: $el.attr('data-author') || $el.find('.search-author a').first().text().trim() || null,
+        score: parseInt(scoreText, 10) || 0,
+        numComments: parseInt(commentsText, 10) || 0,
+        createdUtc: null,
+        subreddit: $el.attr('data-subreddit') || ($el.find('.search-subreddit-link').first().text().trim() || '').replace(/^r\//, ''),
+      });
+    });
+  }
+
   return results;
 }
 
@@ -167,12 +201,17 @@ async function fetchPost(permalinkOrUrl) {
   const html = await cachedFetch(url);
   const $ = cheerio.load(html);
   const postEl = $('div.thing[data-fullname]').first();
+  // IMPORTANT: both selectors below are scoped to postEl (the post's own container), not the
+  // whole page. `.usertext-body .md` and `a.title` are generic classes reused all over an old
+  // Reddit page — the subreddit sidebar description is rendered with the exact same classes.
+  // Searching the whole document with $(...) instead of postEl.find(...) meant .first() often
+  // grabbed the sidebar's rules text instead of the actual post body.
   const post = {
     id: postEl.attr('data-fullname'),
-    title: $('a.title').first().text().trim(),
+    title: postEl.find('a.title').first().text().trim(),
     author: postEl.attr('data-author'),
     score: Number(postEl.attr('data-score')) || 0,
-    selftext: $('.usertext-body .md').first().text().trim(),
+    selftext: postEl.find('.usertext-body .md').first().text().trim(),
     subreddit: postEl.attr('data-subreddit'),
     url: postEl.attr('data-url'),
     permalink: url,
