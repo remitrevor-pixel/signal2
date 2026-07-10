@@ -73,10 +73,22 @@ function parseCore(coreStr) {
   return tree;
 }
 
+// Strips whitespace/hyphens/underscores entirely, so "gift-card", "gift card", and "giftcard"
+// all normalize to the same thing for phrase matching. Used only as a second-chance check after
+// the literal substring match fails — real listings are inconsistent about hyphenating compound
+// words, and users shouldn't have to guess which spelling a given post used.
+function stripSeparators(s) {
+  return (s || '').replace(/[\s\-_]+/g, '');
+}
+
 function evalNode(node, textLower) {
   if (!node) return true;
   if (node.op === 'WORD') return node.value ? textLower.includes(node.value) : true;
-  if (node.op === 'PHRASE') return node.value ? textLower.includes(node.value) : true;
+  if (node.op === 'PHRASE') {
+    if (!node.value) return true;
+    if (textLower.includes(node.value)) return true;
+    return stripSeparators(textLower).includes(stripSeparators(node.value));
+  }
   if (node.op === 'AND') return evalNode(node.left, textLower) && evalNode(node.right, textLower);
   if (node.op === 'OR') return evalNode(node.left, textLower) || evalNode(node.right, textLower);
   return true;
