@@ -76,6 +76,7 @@ function parseCore(coreStr) {
 function evalNode(node, textLower) {
   if (!node) return true;
   if (node.op === 'WORD') return node.value ? textLower.includes(node.value) : true;
+  if (node.op === 'PHRASE') return node.value ? textLower.includes(node.value) : true;
   if (node.op === 'AND') return evalNode(node.left, textLower) && evalNode(node.right, textLower);
   if (node.op === 'OR') return evalNode(node.left, textLower) || evalNode(node.right, textLower);
   return true;
@@ -83,20 +84,36 @@ function evalNode(node, textLower) {
 
 function collectWords(node, arr) {
   if (!node) return arr;
-  if (node.op === 'WORD') { if (node.value) arr.push(node.value); return arr; }
+  if (node.op === 'WORD' || node.op === 'PHRASE') { if (node.value) arr.push(node.value); return arr; }
   collectWords(node.left, arr);
   collectWords(node.right, arr);
   return arr;
 }
 
 // Full parse: returns {tree, must, ignore, positiveWords}
-function parseQuery(raw) {
+// exactPhrase=true is a genuinely different mode, not a hybrid: the ENTIRE raw input is treated
+// as one literal phrase, with no AND/OR/+/-/parentheses parsing applied at all — typing "paid
+// study" then means "contains the phrase 'paid study'", not "contains paid AND contains study"
+// scattered anywhere in the text. This exists because the implicit-AND-between-bare-words
+// default silently changed what people meant to search for; letting them pick the mode instead
+// of guessing avoids that.
+function parseQuery(raw, { exactPhrase = false } = {}) {
+  if (exactPhrase) {
+    const phrase = (raw || '').trim();
+    const tree = phrase ? { op: 'PHRASE', value: phrase.toLowerCase() } : null;
+    return {
+      tree, must: [], ignore: [],
+      coreWords: phrase ? [phrase.toLowerCase()] : [],
+      positiveWords: phrase ? [phrase.toLowerCase()] : [],
+      exactPhrase: true, rawPhrase: phrase,
+    };
+  }
   const { core, must, ignore } = extractMustIgnore(raw);
   let tree = null;
   try { tree = parseCore(core); } catch (e) { tree = null; }
   const coreWords = [...new Set(collectWords(tree, []))];
   const positiveWords = [...new Set([...coreWords, ...must])];
-  return { tree, must, ignore, coreWords, positiveWords };
+  return { tree, must, ignore, coreWords, positiveWords, exactPhrase: false };
 }
 
 // Does a piece of text satisfy the full parsed query (core AND/OR tree, must terms, ignore terms)?
@@ -110,6 +127,11 @@ function matchesQuery(parsed, text) {
 
 // Build a best-effort search string for external platforms / Google-style queries
 function toSearchString(parsed) {
+  if (parsed.exactPhrase) {
+    // Quoted so Google/Serper (and Reddit/Craigslist's own search) treat it as one phrase
+    // rather than a bag of words, matching what the user actually asked for.
+    return parsed.rawPhrase ? `"${parsed.rawPhrase}"` : '';
+  }
   const parts = [];
   function walk(node) {
     if (!node) return;
