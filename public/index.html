@@ -215,6 +215,12 @@
   .chip.must{color:var(--cyan); border-color:var(--cyan-dim); background:var(--cyan-soft);}
   .chip.ignore{color:var(--flare); border-color:var(--flare-dim); background:var(--flare-soft); text-decoration:line-through; text-decoration-color:rgba(255,107,129,0.5);}
   .chip.empty{color:var(--mist-dim); background:none; border-style:dashed;}
+  .chip.phrase{color:var(--cyan); border-color:var(--cyan-dim); background:var(--cyan-soft); font-weight:600;}
+  .match-toggle{display:flex; gap:8px; margin:0 2px 10px;}
+  .match-toggle-btn{flex:1; text-align:center; padding:9px 8px; border-radius:10px; background:var(--panel-2); border:1px solid var(--hairline-soft); font-size:11.5px; font-family:'Sora',sans-serif; font-weight:600; color:var(--mist); cursor:pointer; -webkit-user-select:none; user-select:none;}
+  .match-toggle-btn.active{background:var(--cyan-soft); border-color:var(--cyan-dim); color:var(--cyan);}
+  .match-toggle-btn .mt-sub{display:block; font-family:'JetBrains Mono',monospace; font-weight:400; font-size:9.5px; color:var(--mist-dim); margin-top:2px;}
+  .match-toggle-btn.active .mt-sub{color:var(--cyan-dim);}
 
   /* ===== Active filters + meta ===== */
   .active-filters{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;}
@@ -224,7 +230,12 @@
   .results-meta{display:flex; align-items:center; justify-content:space-between; padding:16px 2px 8px; margin-top:6px; font-size:11.5px; color:var(--mist); flex-wrap:wrap; gap:6px;}
   .results-meta .count b{color:var(--frost); font-family:'JetBrains Mono',monospace; font-weight:600;}
   .results-meta .sortlabel{font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--mist-dim);}
-  .errors-box{background:var(--flare-soft); border:1px solid var(--flare-dim); border-radius:var(--r-md); padding:10px 12px; font-size:11px; color:var(--mist); margin-top:10px; font-family:'JetBrains Mono',monospace; line-height:1.7;}
+  .errors-box{background:var(--flare-soft); border:1px solid var(--flare-dim); border-radius:var(--r-md); padding:10px 12px; font-size:12px; color:var(--frost); margin-top:10px; line-height:1.6;}
+  .errors-box .err-line{padding:3px 0;}
+  .errors-details{margin-top:8px;}
+  .errors-details summary{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--mist-dim); cursor:pointer; -webkit-user-select:none; user-select:none;}
+  .errors-details[open] summary{margin-bottom:6px;}
+  .errors-details pre{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--mist-dim); white-space:pre-wrap; word-break:break-word; margin:0; line-height:1.6;}
 
   /* ===== Result cards ===== */
   .results-list{display:flex; flex-direction:column; gap:10px; margin-top:10px;}
@@ -452,6 +463,11 @@
     </div>
   </div>
 
+  <div class="match-toggle" id="matchToggle">
+    <div class="match-toggle-btn" data-action="set-match-mode" data-id="phrase">Exact phrase<span class="mt-sub">"paid study"</span></div>
+    <div class="match-toggle-btn" data-action="set-match-mode" data-id="logic">AND / OR logic<span class="mt-sub">+word −word</span></div>
+  </div>
+
   <div class="filter-row" id="filterRow"></div>
 
   <div class="ticker-wrap" id="tickerWrap">
@@ -516,6 +532,7 @@ let state = {
   keywordBankItems: [], detailResultId: null, detailFullText: '', detailLinks: [], detailEmails: [],
   aiTab: 'email', aiImage: null, aiText: '', aiResult: null, aiError: null, aiLoading: false,
   theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
+  matchMode: (function(){ try{ return localStorage.getItem('signal_match_mode') === 'logic' ? 'logic' : 'phrase'; }catch(e){ return 'phrase'; } })(),
 };
 
 /* ---- client-side parser preview (real filtering happens server-side) ---- */
@@ -532,8 +549,14 @@ function parseExpr(tokens,pos){let [left,p1]=parseTerm(tokens,pos);pos=p1;while(
 function parseTerm(tokens,pos){let [left,p1]=parseFactor(tokens,pos);pos=p1;while(pos<tokens.length&&tokens[pos]!==')'&&tokens[pos].toUpperCase()!=='OR'){if(tokens[pos].toUpperCase()==='AND')pos++;if(pos>=tokens.length||tokens[pos]===')')break;let [right,p2]=parseFactor(tokens,pos);left={op:'AND',left,right};pos=p2;}return [left,pos];}
 function parseFactor(tokens,pos){if(tokens[pos]==='('){let [e,p1]=parseExpr(tokens,pos+1);if(tokens[p1]===')')p1++;return [e,p1];}const val=(tokens[pos]||'').toLowerCase();return [{op:'WORD',value:val},pos+1];}
 function parseCore(coreStr){if(!coreStr.trim())return null;const tokens=tokenize(coreStr);if(tokens.length===0)return null;const [tree]=parseExpr(tokens,0);return tree;}
-function parseQueryPreview(raw){const {core,must,ignore}=extractMustIgnore(raw);let tree=null;try{tree=parseCore(core);}catch(e){tree=null;}return {tree,must,ignore};}
-function renderNodeChips(node){if(!node)return '';if(node.op==='WORD')return `<span class="chip">${escapeHtml(node.value)}</span>`;if(node.op==='AND')return `${renderNodeChips(node.left)}<span class="chip op">AND</span>${renderNodeChips(node.right)}`;if(node.op==='OR')return `${renderNodeChips(node.left)}<span class="chip op">OR</span>${renderNodeChips(node.right)}`;return '';}
+function parseQueryPreview(raw){
+  if(state.matchMode !== 'logic'){
+    const phrase = (raw||'').trim();
+    return { tree: phrase ? {op:'PHRASE', value:phrase} : null, must:[], ignore:[] };
+  }
+  const {core,must,ignore}=extractMustIgnore(raw);let tree=null;try{tree=parseCore(core);}catch(e){tree=null;}return {tree,must,ignore};
+}
+function renderNodeChips(node){if(!node)return '';if(node.op==='PHRASE')return `<span class="chip phrase">"${escapeHtml(node.value)}"</span>`;if(node.op==='WORD')return `<span class="chip">${escapeHtml(node.value)}</span>`;if(node.op==='AND')return `${renderNodeChips(node.left)}<span class="chip op">AND</span>${renderNodeChips(node.right)}`;if(node.op==='OR')return `${renderNodeChips(node.left)}<span class="chip op">OR</span>${renderNodeChips(node.right)}`;return '';}
 function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
 function renderTicker(raw){
@@ -769,6 +792,21 @@ function setTheme(theme){
       btn.classList.toggle('active', btn.dataset.id === theme);
     });
   }
+}
+
+function renderMatchToggle(){
+  document.querySelectorAll('.match-toggle-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.id === state.matchMode);
+  });
+  const input = document.getElementById('searchInput');
+  if(input) input.placeholder = state.matchMode === 'logic' ? '(paid study OR focus group) AND remote' : 'paid study';
+}
+
+function setMatchMode(mode){
+  state.matchMode = mode === 'logic' ? 'logic' : 'phrase';
+  try{ localStorage.setItem('signal_match_mode', state.matchMode); }catch(e){ /* storage unavailable in this WebView — choice just won't persist */ }
+  renderMatchToggle();
+  renderTicker(document.getElementById('searchInput').value);
 }
 
 // Opens external platform links (sign-in, launcher search, source links) in a way that gives
@@ -1028,6 +1066,7 @@ async function runSearch(){
     countries: [...state.countries].join(','),
     timeRange: state.timeRange,
     sort: state.sort,
+    matchMode: state.matchMode,
   });
 
   try{
@@ -1060,6 +1099,27 @@ function clearSearch(){
   if(state.searched) runSearch(); else renderTicker('');
 }
 
+// Backend errors carry raw technical detail (env var names, HTTP status codes, provider names)
+// that's useful for debugging but not something end users should see by default — it reads as
+// unpolished and exposes implementation details (e.g. which parts run on free-tier APIs). Shows
+// a clean one-line-per-platform summary instead, with the raw messages available but collapsed.
+function renderErrorsBox(errors){
+  const seen = new Set();
+  const platforms = [];
+  errors.forEach(e => {
+    const label = (e.split(/[:(]/)[0] || 'A platform').trim().replace(/\s+discovery$/i, '');
+    if(!seen.has(label)){ seen.add(label); platforms.push(label); }
+  });
+  const summary = platforms.map(p => `<div class="err-line">Some results from <b>${escapeHtml(p)}</b> couldn't be loaded right now — try a different search or check back shortly.</div>`).join('');
+  return `<div class="errors-box">
+    ${summary}
+    <details class="errors-details">
+      <summary>technical details</summary>
+      <pre>${errors.map(e=>escapeHtml(e)).join('\n')}</pre>
+    </details>
+  </div>`;
+}
+
 function renderResults(data){
   const {results=[], errors=[]} = data;
   state.lastResultsById = {};
@@ -1068,7 +1128,7 @@ function renderResults(data){
   document.getElementById('resultsCount').innerHTML = `<b>${results.length}</b> real result${results.length===1?'':'s'} · <b>${state.platforms.size}</b> platform${state.platforms.size===1?'':'s'}`;
 
   document.getElementById('errorsArea').innerHTML = errors.length
-    ? `<div class="errors-box">${errors.map(e=>'⚠ '+escapeHtml(e)).join('<br>')}</div>` : '';
+    ? renderErrorsBox(errors) : '';
 
   const launcherOnlyCards = Object.entries(state.launcherLinks)
     .filter(([key]) => !key.startsWith('craigslist_'))
@@ -1093,9 +1153,9 @@ function renderLauncherCard(platId, url){
   <div class="card">
     <div class="card-top">
       <div class="plat-badge"><span class="plat-mono" style="background:${p.color}">${p.mono}</span>${p.name}</div>
-      <span class="ext-tag" style="color:var(--flare); border:1px solid var(--flare-dim); background:var(--flare-soft);">launcher only</span>
+      <span class="ext-tag" style="color:var(--flare); border:1px solid var(--flare-dim); background:var(--flare-soft);">external search</span>
     </div>
-    <div class="card-snippet">No official free API and no Google-indexed snippet matched this query on ${p.name}. Search directly with the same query logic carried over:</div>
+    <div class="card-snippet">No matches for this search on ${p.name} yet. Try a different phrase, loosen your filters, or search directly:</div>
     <div class="card-bottom"><div class="card-actions"><a class="btn-ghost primary" href="${url}" target="_blank" rel="noopener">search on ${p.name.split(' ')[0]} ↗</a></div></div>
   </div>`;
 }
@@ -1611,6 +1671,7 @@ document.addEventListener('click', (e)=>{
     case 'run-search': runSearch(); break;
     case 'open-settings': openSettings(); break;
     case 'set-theme': setTheme(id); break;
+    case 'set-match-mode': setMatchMode(id); break;
     case 'open-saved': openSaved(); break;
     case 'save-current-query': saveCurrentQuery(); break;
     case 'load-saved': loadSavedItem(id); break;
@@ -1661,6 +1722,7 @@ document.addEventListener('keydown', (e)=>{
 
 buildFilterRow();
 renderActiveFilters();
+renderMatchToggle();
 renderTicker('');
 refreshQuota();
 </script>
