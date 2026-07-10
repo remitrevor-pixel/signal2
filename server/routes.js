@@ -64,6 +64,10 @@ async function getRedditResults(parsed, searchString, countryList, timeRange) {
       .filter(p => matchesQuery(parsed, p.title))
       .map(p => {
         const permalink = p.permalink && p.permalink.startsWith('http') ? p.permalink : `https://reddit.com${p.permalink || ''}`;
+        // Real timestamp when old.reddit.com's search page exposed one (via the outer .thing
+        // wrapper — see reddit-scrape.js); null falls back to "date unknown" in the UI rather
+        // than a guessed value.
+        const minsAgo = p.createdUtc ? Math.max(0, Math.floor((Date.now() / 1000 - p.createdUtc) / 60)) : null;
         return {
           id: `reddit_${p.id || permalink}`,
           platform: 'reddit',
@@ -72,7 +76,7 @@ async function getRedditResults(parsed, searchString, countryList, timeRange) {
           snippet: `by u/${p.author || 'unknown'}${p.subreddit ? ' in r/' + p.subreddit : ''} · ${p.score} points · ${p.numComments} comments`,
           source: p.subreddit ? `r/${p.subreddit}` : 'reddit',
           url: permalink,
-          minsAgo: null, // unknown from the search-results page specifically — see reddit-scrape.js
+          minsAgo,
           discovery: false,
         };
       });
