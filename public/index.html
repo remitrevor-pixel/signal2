@@ -531,7 +531,7 @@ const COUNTRIES = [
   {id:'au', name:'Australia', flag:'🇦🇺'},
 ];
 const TIME_RANGES = [
-  {id:'all', label:'All time'}, {id:'1h', label:'Past hour'}, {id:'1d', label:'Past day'},
+  {id:'all', label:'All time'}, {id:'1h', label:'Past hour'}, {id:'1d', label:'Past 24hrs'},
   {id:'1w', label:'Past week'}, {id:'1m', label:'Past month'},
 ];
 const SORTS = [
@@ -539,16 +539,48 @@ const SORTS = [
 ];
 
 let state = {
-  platforms: new Set(PLATFORMS.map(p=>p.id)),
+  platforms: new Set(['reddit']),
   countries: new Set(COUNTRIES.map(c=>c.id)),
-  timeRange: 'all', sort: 'relevance', query: '', searched: false,
+  timeRange: '1w', sort: 'newest', query: 'survey AND gift AND card', searched: false,
   launcherLinks: {}, openPanel: null, savedItems: [], lastResultsById: {},
   keywordBankItems: [], detailResultId: null, detailFullText: '', detailLinks: [], detailEmails: [],
   aiTab: 'email', aiImage: null, aiText: '', aiResult: null, aiError: null, aiLoading: false,
   theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
-  matchMode: (function(){ try{ return localStorage.getItem('signal_match_mode') === 'logic' ? 'logic' : 'phrase'; }catch(e){ return 'phrase'; } })(),
+  matchMode: 'logic',
   pendingExternalUrl: null,
 };
+
+// Restores the last search the person actually ran, so refreshing/reopening the app doesn't
+// throw away their filters and query — the hardcoded defaults above are only ever used on a
+// genuinely first-ever launch (or if storage was cleared).
+function loadPersistedSearchState(){
+  try{
+    const raw = localStorage.getItem('signal_last_search');
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
+}
+function persistSearchState(){
+  try{
+    localStorage.setItem('signal_last_search', JSON.stringify({
+      query: state.query,
+      platforms: [...state.platforms],
+      countries: [...state.countries],
+      timeRange: state.timeRange,
+      sort: state.sort,
+      matchMode: state.matchMode,
+    }));
+  }catch(e){ /* storage unavailable in this WebView — state just won't persist across reopens */ }
+}
+(function restorePersistedSearchState(){
+  const p = loadPersistedSearchState();
+  if(!p) return;
+  if(typeof p.query === 'string') state.query = p.query;
+  if(Array.isArray(p.platforms) && p.platforms.length) state.platforms = new Set(p.platforms);
+  if(Array.isArray(p.countries) && p.countries.length) state.countries = new Set(p.countries);
+  if(p.timeRange) state.timeRange = p.timeRange;
+  if(p.sort) state.sort = p.sort;
+  if(p.matchMode) state.matchMode = p.matchMode;
+})();
 
 /* ---- client-side parser preview (real filtering happens server-side) ---- */
 function extractMustIgnore(raw){
@@ -819,9 +851,9 @@ function renderMatchToggle(){
 
 function setMatchMode(mode){
   state.matchMode = mode === 'logic' ? 'logic' : 'phrase';
-  try{ localStorage.setItem('signal_match_mode', state.matchMode); }catch(e){ /* storage unavailable in this WebView — choice just won't persist */ }
   renderMatchToggle();
   renderTicker(document.getElementById('searchInput').value);
+  persistSearchState();
 }
 
 // Opens external platform links (sign-in, launcher search, source links) in a way that gives
@@ -1109,6 +1141,7 @@ async function runSearch(){
   renderActiveFilters();
   renderTicker(state.query);
   closePanel();
+  persistSearchState();
 
   if(state.platforms.size===0 || state.countries.size===0){
     document.getElementById('resultsCount').innerHTML = `<b>0</b> results`;
@@ -1150,7 +1183,7 @@ function renderDiscordNote(){
   </div>`;
 }
 
-function onControlsChanged(){ renderActiveFilters(); if(state.searched) runSearch(); }
+function onControlsChanged(){ renderActiveFilters(); persistSearchState(); if(state.searched) runSearch(); }
 
 function clearSearch(){
   document.getElementById('searchInput').value=''; state.query='';
@@ -1790,8 +1823,11 @@ document.addEventListener('keydown', (e)=>{
 buildFilterRow();
 renderActiveFilters();
 renderMatchToggle();
-renderTicker('');
+document.getElementById('searchInput').value = state.query;
+document.getElementById('clearBtn').style.display = state.query ? 'flex' : 'none';
+renderTicker(state.query);
 refreshQuota();
+runSearch(); // always runs on load — either the restored last search, or the fresh-install default
 </script>
 </body>
 </html>
