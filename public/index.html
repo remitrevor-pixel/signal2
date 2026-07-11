@@ -234,6 +234,19 @@
   .errors-box .err-line{padding:3px 0;}
   .fallback-notice{background:var(--cyan-soft); border:1px solid var(--cyan-dim); border-radius:var(--r-md); padding:10px 12px; font-size:12px; color:var(--frost); margin-top:10px; line-height:1.5;}
   .fallback-notice b{color:var(--cyan);}
+
+  /* ===== Confirm-before-leaving-app dialog ===== */
+  .confirm-backdrop{position:fixed; inset:0; background:var(--scrim); backdrop-filter:blur(2px); z-index:120; display:flex; align-items:center; justify-content:center; padding:24px; opacity:0; pointer-events:none; transition:opacity .18s;}
+  .confirm-backdrop.show{opacity:1; pointer-events:auto;}
+  .confirm-dialog{background:var(--panel); border:1px solid var(--hairline-soft); border-radius:var(--r-lg); padding:20px 18px; max-width:340px; width:100%; box-shadow:var(--shadow-sheet); transform:scale(.94); transition:transform .18s;}
+  .confirm-backdrop.show .confirm-dialog{transform:scale(1);}
+  .confirm-title{font-family:'Sora',sans-serif; font-weight:700; font-size:15px; color:var(--frost); margin-bottom:8px;}
+  .confirm-body{font-size:12.5px; color:var(--mist); line-height:1.55; margin-bottom:6px;}
+  .confirm-domain{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--cyan); background:var(--panel-2); border:1px solid var(--hairline-soft); border-radius:8px; padding:8px 10px; margin:10px 0 16px; word-break:break-all;}
+  .confirm-actions{display:flex; gap:8px;}
+  .confirm-actions button{flex:1; padding:11px; border-radius:10px; font-family:'Sora',sans-serif; font-weight:600; font-size:12.5px; cursor:pointer;}
+  .confirm-cancel{background:var(--panel-2); border:1px solid var(--hairline-soft); color:var(--frost);}
+  .confirm-open{background:var(--gradient-signal); border:none; color:#04121b;}
   .errors-details{margin-top:8px;}
   .errors-details summary{font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--mist-dim); cursor:pointer; -webkit-user-select:none; user-select:none;}
   .errors-details[open] summary{margin-bottom:6px;}
@@ -534,6 +547,7 @@ let state = {
   aiTab: 'email', aiImage: null, aiText: '', aiResult: null, aiError: null, aiLoading: false,
   theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
   matchMode: (function(){ try{ return localStorage.getItem('signal_match_mode') === 'logic' ? 'logic' : 'phrase'; }catch(e){ return 'phrase'; } })(),
+  pendingExternalUrl: null,
 };
 
 /* ---- client-side parser preview (real filtering happens server-side) ---- */
@@ -832,6 +846,50 @@ function openExternal(url){
     return;
   }
   window.open(url, '_blank', 'noopener');
+}
+
+/* ---- confirm-before-leaving-app dialog, used by the "source" button specifically ---- */
+
+function confirmDialogShell(){
+  let el = document.getElementById('confirmBackdrop');
+  if(!el){
+    el = document.createElement('div');
+    el.className = 'confirm-backdrop';
+    el.id = 'confirmBackdrop';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function confirmOpenSource(url){
+  state.pendingExternalUrl = url;
+  let domain = url;
+  try{ domain = new URL(url).hostname.replace(/^www\./,''); }catch(e){ /* leave as raw url if unparseable */ }
+
+  const el = confirmDialogShell();
+  el.innerHTML = `
+    <div class="confirm-dialog">
+      <div class="confirm-title">Open this site?</div>
+      <div class="confirm-body">You're about to leave Signal and open the original source in your browser.</div>
+      <div class="confirm-domain">${escapeHtml(domain)}</div>
+      <div class="confirm-actions">
+        <button class="confirm-cancel" data-action="cancel-external-confirm">Cancel</button>
+        <button class="confirm-open" data-action="proceed-external-open">Open ↗</button>
+      </div>
+    </div>`;
+  el.classList.add('show');
+}
+
+function cancelExternalConfirm(){
+  const el = document.getElementById('confirmBackdrop');
+  if(el) el.classList.remove('show');
+  state.pendingExternalUrl = null;
+}
+
+function proceedExternalOpen(){
+  const url = state.pendingExternalUrl;
+  cancelExternalConfirm();
+  if(url) openExternal(url);
 }
 
 function renderAccounts(){
@@ -1187,7 +1245,7 @@ function renderCard(r, idx, words){
     <div class="card-bottom">
       <div class="card-actions">
         <button class="btn-ghost" id="expandBtn-${r.id}" data-action="expand-result" data-id="${r.id}">expand ▾</button>
-        <a class="btn-ghost primary" href="${r.url}" target="_blank" rel="noopener">source ↗</a>
+        <button class="btn-ghost primary" data-action="confirm-open-source" data-url="${escapeHtml(r.url)}">source ↗</button>
         ${launcherUrl ? `<a class="btn-ghost" href="${launcherUrl}" target="_blank" rel="noopener">search on ${p.name.split(' ')[0]} ↗</a>` : ''}
       </div>
     </div>
@@ -1303,7 +1361,7 @@ async function openResultDetail(id){
         <div id="dmEmailsArea"><div class="dm-loading">fetching…</div></div>
       </div>
       <div class="dm-actions">
-        <button class="btn-ghost primary" data-action="open-external" data-url="${escapeHtml(r.url)}">open source ↗</button>
+        <button class="btn-ghost primary" data-action="confirm-open-source" data-url="${escapeHtml(r.url)}">open source ↗</button>
         <button class="btn-ghost" data-action="copy-detail">copy all content</button>
       </div>
     </div>`;
@@ -1684,6 +1742,9 @@ document.addEventListener('click', (e)=>{
     case 'delete-kwbank-item': e.stopPropagation(); deleteKeywordBankItem(id); break;
     case 'expand-result': expandResult(id); break;
     case 'open-external': openExternal(el.dataset.url); break;
+    case 'confirm-open-source': confirmOpenSource(el.dataset.url); break;
+    case 'cancel-external-confirm': cancelExternalConfirm(); break;
+    case 'proceed-external-open': proceedExternalOpen(); break;
     case 'open-detail': openResultDetail(id); break;
     case 'close-detail': closeResultDetail(); break;
     case 'copy-detail': copyDetailContent(); break;
@@ -1714,9 +1775,13 @@ document.addEventListener('change', (e)=>{
 });
 
 document.getElementById('filterBackdrop').addEventListener('click', closePanel);
+document.addEventListener('click', (e)=>{
+  if(e.target.id === 'confirmBackdrop') cancelExternalConfirm();
+});
 document.addEventListener('keydown', (e)=>{
   if(e.key==='Escape'){
-    if(document.getElementById('aiModal')?.classList.contains('open')) closeAiTools();
+    if(document.getElementById('confirmBackdrop')?.classList.contains('show')) cancelExternalConfirm();
+    else if(document.getElementById('aiModal')?.classList.contains('open')) closeAiTools();
     else if(document.getElementById('detailModal')?.classList.contains('open')) closeResultDetail();
     else closePanel();
   }
