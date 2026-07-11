@@ -58,6 +58,13 @@ async function getRedditResults(parsed, searchString, countryList, timeRange) {
   // filtering server-side here, which is why these results skip withinTimeRange() below —
   // re-checking an already-Reddit-filtered result against our own relative-date guesser would
   // just throw away good results whose exact timestamp we didn't parse.
+  // Always old.reddit.com — never substitute a different data source (Google's index via
+  // Serper) even on failure. reddit-scrape.js already has its own internal retry via the
+  // Scrape.do proxy if Reddit blocks the direct request, so that's still "the old Reddit
+  // method," just reached a different way. If it still fails after that, we return the error
+  // rather than quietly switching to Google-indexed snippets — the outer per-platform fallback
+  // in the /search route handles broadening the QUERY (AND/OR logic instead of exact phrase),
+  // which re-calls this same function, so it's still old.reddit.com either way.
   try {
     const redditTimeMap = { all: undefined, '1h': 'hour', '1d': 'day', '1w': 'week', '1m': 'month' };
     const posts = await redditScrape.searchReddit(query, { sort: 'relevance', limit: 40, timeRange: redditTimeMap[timeRange] });
@@ -82,37 +89,7 @@ async function getRedditResults(parsed, searchString, countryList, timeRange) {
         };
       });
   } catch (scrapeErr) {
-    console.error('Reddit direct scrape failed, falling back to Serper:', scrapeErr.message);
-  }
-
-  // Fallback: Serper-based platformDiscovery (Google's index of reddit.com) — only reached if
-  // the direct scrape above threw (Reddit blocked it and the Scrape.do proxy fallback also
-  // failed, or old Reddit's HTML structure changed and broke the selectors).
-  try {
-    const firstCountry = countryList && countryList[0] ? COUNTRIES[countryList[0]] : null;
-    const raw = await serper.platformDiscovery(query, 'reddit.com', firstCountry, timeRange);
-    return raw
-      .filter(r => matchesQuery(parsed, `${r.title} ${r.snippet}`))
-      .map((r, i) => {
-        const minsAgo = parseRelativeDate(r.date);
-        let subreddit = 'reddit';
-        const match = r.url.match(/reddit\.com\/r\/([a-zA-Z0-9_]+)/);
-        if (match) subreddit = match[1];
-        return {
-          id: `reddit_${i}_${Buffer.from(r.url).toString('base64').slice(0, 8)}`,
-          platform: 'reddit',
-          country: null,
-          title: r.title,
-          snippet: r.snippet,
-          source: `r/${subreddit}`,
-          url: r.url,
-          minsAgo,
-          discovery: false,
-        };
-      })
-      .filter(r => withinTimeRange(r.minsAgo, timeRange));
-  } catch (e) {
-    return { error: `Reddit: ${e.message}` };
+    return { error: `Reddit: ${scrapeErr.message}` };
   }
 }
 
@@ -240,6 +217,24 @@ function buildLauncherUrl(platformId, searchString, country) {
 // errors, and launcher links. Pulled out into its own function so the route handler below can
 // run it twice — once normally, once as an automatic fallback — without duplicating the platform
 // dispatch logic.
+// Sorts results by the chosen mode, with Reddit always placed first as a group — per explicit
+// request, Reddit should never get buried under other platforms regardless of sort order.
+// Within the Reddit group and within the "everything else" group, the normal sort still applies.
+function sortResults(results, sort, parsed) {
+  const platformRank = (r) => (r.platform === 'reddit' ? 0 : 1);
+  if (sort === 'newest') {
+    results.sort((a, b) => platformRank(a) - platformRank(b) || (a.minsAgo ?? Infinity) - (b.minsAgo ?? Infinity));
+  } else {
+    const score = (r) => {
+      const text = `${r.title} ${r.snippet || ''}`.toLowerCase();
+      const hits = parsed.positiveWords.filter(w => text.includes(w)).length;
+      return hits * 1000 - (r.minsAgo ?? 999999) * 0.001;
+    };
+    results.sort((a, b) => platformRank(a) - platformRank(b) || score(b) - score(a));
+  }
+  return results;
+}
+
 async function runSearchPass(platformList, parsed, searchString, countryList, timeRange, sort) {
   let allResults = [];
   const errors = [];
@@ -290,17 +285,7 @@ async function runSearchPass(platformList, parsed, searchString, countryList, ti
   // country filter (skip null-country results, e.g. Reddit / discovery snippets — always shown)
   allResults = allResults.filter(r => r.country === null || countryList.includes(r.country));
 
-  if (sort === 'newest') {
-    allResults.sort((a, b) => (a.minsAgo ?? Infinity) - (b.minsAgo ?? Infinity));
-  } else {
-    // relevance: real matched-word count against the query, recency as tiebreaker
-    const score = (r) => {
-      const text = `${r.title} ${r.snippet || ''}`.toLowerCase();
-      const hits = parsed.positiveWords.filter(w => text.includes(w)).length;
-      return hits * 1000 - (r.minsAgo ?? 999999) * 0.001;
-    };
-    allResults.sort((a, b) => score(b) - score(a));
-  }
+  sortResults(allResults, sort, parsed);
 
   return { results: allResults, errors, launcherLinks, perPlatformCount };
 }
@@ -343,18 +328,9 @@ router.get('/search', async (req, res) => {
         launcherLinks = { ...launcherLinks, ...fallbackPass.launcherLinks };
         fallbackApplied = true;
         fallbackPlatforms = emptyPlatforms.filter(pid => fallbackPass.perPlatformCount[pid]).map(pid => (PLATFORMS[pid] && PLATFORMS[pid].name) || pid);
-        // Re-sort the merged set so fallback results interleave properly rather than just
-        // getting appended at the end regardless of relevance/recency.
-        if (sort === 'newest') {
-          results.sort((a, b) => (a.minsAgo ?? Infinity) - (b.minsAgo ?? Infinity));
-        } else {
-          const score = (r) => {
-            const text = `${r.title} ${r.snippet || ''}`.toLowerCase();
-            const hits = parsed.positiveWords.filter(w => text.includes(w)).length;
-            return hits * 1000 - (r.minsAgo ?? 999999) * 0.001;
-          };
-          results.sort((a, b) => score(b) - score(a));
-        }
+        // Re-sort the merged set (same Reddit-priority rule as runSearchPass) so fallback
+        // results interleave properly rather than just getting appended at the end.
+        sortResults(results, sort, parsed);
       }
     }
   }
