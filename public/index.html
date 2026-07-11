@@ -258,7 +258,6 @@
   .ext-tag.discovery{color:var(--violet); border:1px solid var(--violet-dim); background:var(--violet-soft);}
   .ext-tag.direct{color:var(--cyan); border:1px solid var(--cyan-dim); background:var(--cyan-soft);}
   .card-title{font-size:14.5px; font-weight:600; color:var(--frost); margin-bottom:5px; line-height:1.4;}
-  .card-title a{color:inherit;} .card-title a:active{color:var(--cyan);}
   .card-snippet{font-size:13px; color:var(--mist); line-height:1.6; margin-bottom:9px;}
   .card-snippet mark{background:rgba(79,227,208,0.24); color:var(--frost); border-radius:3px; padding:0 2px;}
   .matched-row{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px;}
@@ -1181,7 +1180,7 @@ function renderCard(r, idx, words){
       ${country ? `<span class="flag-country">${country.flag}</span><span class="country-name">${country.name}</span>` : ''}
       <span class="time-ago">${formatTimeAgo(r.minsAgo)}</span>
     </div>
-    <div class="card-title"><a href="${r.url}" target="_blank" rel="noopener">${titleHl}</a></div>
+    <div class="card-title">${titleHl}</div>
     <div class="card-snippet">${snippetHl}</div>
     ${matched.length ? `<div class="matched-row"><span class="mlabel">matched</span>${matched.map(w=>`<span class="chip">${escapeHtml(w)}</span>`).join('')}</div>` : ''}
     <div class="card-extra" id="extra-${r.id}"></div>
