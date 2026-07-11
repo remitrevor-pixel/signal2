@@ -244,10 +244,12 @@ async function runSearchPass(platformList, parsed, searchString, countryList, ti
   let allResults = [];
   const errors = [];
   const launcherLinks = {};
+  const perPlatformCount = {}; // platformId -> how many results THIS pass found for it
 
   await Promise.all(platformList.map(async (platformId) => {
     const plat = PLATFORMS[platformId];
     if (!plat) return;
+    const before = allResults.length;
 
     if (plat.mode === 'api' && platformId === 'reddit') {
       const r = await getRedditResults(parsed, searchString, countryList, timeRange);
@@ -281,6 +283,8 @@ async function runSearchPass(platformList, parsed, searchString, countryList, ti
     if (plat.mode === 'bot') {
       // Discord is served by the separate bot process; the frontend calls it directly (see README).
     }
+
+    perPlatformCount[platformId] = allResults.length - before;
   }));
 
   // country filter (skip null-country results, e.g. Reddit / discovery snippets — always shown)
@@ -298,7 +302,7 @@ async function runSearchPass(platformList, parsed, searchString, countryList, ti
     allResults.sort((a, b) => score(b) - score(a));
   }
 
-  return { results: allResults, errors, launcherLinks };
+  return { results: allResults, errors, launcherLinks, perPlatformCount };
 }
 
 router.get('/search', async (req, res) => {
@@ -314,23 +318,44 @@ router.get('/search', async (req, res) => {
   const parsed = parseQuery(query, { exactPhrase: wantsExactPhrase });
   const searchString = toSearchString(parsed) || query.trim();
 
-  let { results, errors, launcherLinks } = await runSearchPass(platformList, parsed, searchString, countryList, timeRange, sort);
+  const firstPass = await runSearchPass(platformList, parsed, searchString, countryList, timeRange, sort);
+  let results = firstPass.results;
+  let errors = firstPass.errors;
+  let launcherLinks = firstPass.launcherLinks;
 
-  // Automatic fallback: an exact phrase is a narrow ask — real posts phrase things differently
-  // ("gift card" vs "gift-card" is already handled by matchesQuery's separator-tolerant check,
-  // but plenty of genuine near-matches won't share the exact wording at all). Rather than
-  // showing a wall of empty "no matches" cards, silently broaden to AND-logic on the same words
-  // and clearly label the results as a fallback so the person knows why they're seeing it.
+  // Automatic fallback — PER PLATFORM, not all-or-nothing. An exact phrase is a narrow ask, and
+  // different platforms genuinely vary in whether they have a post using that literal wording.
+  // The earlier version of this only re-ran everything when the WHOLE combined result set was
+  // empty, which meant a platform like Reddit could silently return zero results forever while
+  // Craigslist/General Web still found plenty — looking exactly like "Reddit stopped working"
+  // from the outside, when really it just needed its own, narrower fallback.
   let fallbackApplied = false;
-  if (wantsExactPhrase && results.length === 0) {
-    const fallbackParsed = parseQuery(query, { exactPhrase: false });
-    const fallbackSearchString = toSearchString(fallbackParsed) || query.trim();
-    const fallbackPass = await runSearchPass(platformList, fallbackParsed, fallbackSearchString, countryList, timeRange, sort);
-    if (fallbackPass.results.length > 0) {
-      results = fallbackPass.results;
-      errors = fallbackPass.errors;
-      launcherLinks = fallbackPass.launcherLinks;
-      fallbackApplied = true;
+  let fallbackPlatforms = [];
+  if (wantsExactPhrase) {
+    const emptyPlatforms = platformList.filter(pid => !firstPass.perPlatformCount[pid]);
+    if (emptyPlatforms.length > 0) {
+      const fallbackParsed = parseQuery(query, { exactPhrase: false });
+      const fallbackSearchString = toSearchString(fallbackParsed) || query.trim();
+      const fallbackPass = await runSearchPass(emptyPlatforms, fallbackParsed, fallbackSearchString, countryList, timeRange, sort);
+      if (fallbackPass.results.length > 0) {
+        results = [...results, ...fallbackPass.results];
+        errors = [...errors, ...fallbackPass.errors];
+        launcherLinks = { ...launcherLinks, ...fallbackPass.launcherLinks };
+        fallbackApplied = true;
+        fallbackPlatforms = emptyPlatforms.filter(pid => fallbackPass.perPlatformCount[pid]).map(pid => (PLATFORMS[pid] && PLATFORMS[pid].name) || pid);
+        // Re-sort the merged set so fallback results interleave properly rather than just
+        // getting appended at the end regardless of relevance/recency.
+        if (sort === 'newest') {
+          results.sort((a, b) => (a.minsAgo ?? Infinity) - (b.minsAgo ?? Infinity));
+        } else {
+          const score = (r) => {
+            const text = `${r.title} ${r.snippet || ''}`.toLowerCase();
+            const hits = parsed.positiveWords.filter(w => text.includes(w)).length;
+            return hits * 1000 - (r.minsAgo ?? 999999) * 0.001;
+          };
+          results.sort((a, b) => score(b) - score(a));
+        }
+      }
     }
   }
 
@@ -341,7 +366,9 @@ router.get('/search', async (req, res) => {
     meta: {
       searchString, quota: quota.summary(),
       fallbackApplied,
-      fallbackNote: fallbackApplied ? `No exact matches for "${query.trim()}" — showing broader results for each word instead.` : null,
+      fallbackNote: fallbackApplied
+        ? `No exact "${query.trim()}" matches on ${fallbackPlatforms.join(', ')} — showing broader results for each word from ${fallbackPlatforms.length === 1 ? 'it' : 'those'} instead.`
+        : null,
     },
   });
 });
