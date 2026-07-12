@@ -387,6 +387,18 @@
   .dm-actions .btn-ghost, .dm-actions .btn-ghost.primary{flex:1; min-width:130px; text-align:center; justify-content:center;}
   .dm-copy-toast{position:fixed; left:50%; bottom:calc(24px + var(--safe-b)); transform:translateX(-50%) translateY(8px); opacity:0; background:var(--panel-2); border:1px solid var(--cyan-dim); color:var(--cyan); font-size:12.5px; padding:9px 16px; border-radius:20px; z-index:99; transition:opacity .18s, transform .18s; pointer-events:none;}
   .dm-copy-toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+  /* Engagement numbers (points/comments/shares/price/location) shown as small separate pills
+     instead of being left inline in the content, so they read as metadata, not text. */
+  .dm-stats-row{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:10px;}
+  .dm-stat-chip{display:inline-flex; align-items:center; gap:4px; font-family:'JetBrains Mono',monospace; font-size:10.5px; padding:4px 10px; border-radius:var(--r-pill); border:1px solid var(--hairline); color:var(--mist); background:var(--panel-2); white-space:nowrap;}
+  .dm-stat-chip b{color:var(--frost); font-weight:600;}
+  /* Comments/discussion is collapsed by default so the real post content is what a beginner
+     sees first; toggled open on demand instead of being dumped inline with the post. */
+  .dm-comments-toggle{width:100%; display:flex; align-items:center; justify-content:center; gap:6px; background:var(--panel-2); border:1px solid var(--hairline-soft); border-radius:var(--r-sm); padding:10px; color:var(--mist); font-size:12.5px; font-family:'JetBrains Mono',monospace;}
+  .dm-comments-toggle:active{border-color:var(--cyan-dim); color:var(--cyan);}
+  .dm-comments-body{margin-top:10px; display:none;}
+  .dm-comments-body.open{display:block;}
+  .dm-section-note{font-size:11.5px; color:var(--mist-dim); margin-top:6px; line-height:1.5;}
   .theme-toggle{display:flex; gap:8px;}
   .theme-toggle-btn{flex:1; text-align:center; padding:11px 8px; border-radius:10px; background:var(--panel-2); border:1px solid var(--hairline-soft); font-size:12.5px; font-family:'Sora',sans-serif; font-weight:600; color:var(--mist); cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; -webkit-user-select:none; user-select:none;}
   .theme-toggle-btn.active{background:var(--cyan-soft); border-color:var(--cyan-dim); color:var(--cyan);}
@@ -544,6 +556,7 @@ let state = {
   timeRange: '1w', sort: 'newest', query: 'survey AND gift AND card', searched: false,
   launcherLinks: {}, openPanel: null, savedItems: [], lastResultsById: {},
   keywordBankItems: [], detailResultId: null, detailFullText: '', detailLinks: [], detailEmails: [],
+  detailCommentsText: null, detailCommentsCount: 0,
   aiTab: 'email', aiImage: null, aiText: '', aiResult: null, aiError: null, aiLoading: false,
   theme: document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
   matchMode: 'logic',
@@ -1296,8 +1309,15 @@ async function expandResult(id){
     // country is passed through so the fetch is geo-targeted (helps with geo-restricted content)
     const res = await fetch(API_BASE + '/api/expand', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url: r.url, country: r.country}) });
     const data = await res.json();
-    if(data.error){ extra.textContent = 'Could not fetch full content: ' + data.error; }
-    else { extra.textContent = (data.text || '(no extractable text)') + (data.fromCache ? '\n\n[cached]' : '') + (data.countryCode ? `\n[fetched via ${data.provider}, geo-targeted: ${data.countryCode}]` : (data.provider ? `\n[fetched via ${data.provider}]` : '')); }
+    if(data.error){
+      extra.textContent = 'Could not fetch full content: ' + data.error;
+    } else {
+      const statsRow = renderStatsRow(data.stats);
+      const commentsNote = data.commentsCount
+        ? `<div class="dm-section-note">+ ${data.commentsCount} comment${data.commentsCount===1?'':'s'} not shown here — open the card for the full discussion.</div>`
+        : '';
+      extra.innerHTML = `<div class="dm-content">${escapeHtml(data.text || '(no extractable text)')}</div>${statsRow}${commentsNote}`;
+    }
     extra.classList.add('open');
   }catch(e){
     extra.textContent = 'Fetch failed: ' + e.message;
@@ -1357,6 +1377,21 @@ function detailModalShell(){
   return modal;
 }
 
+// Turns a best-effort stats object ({points, comments, shares, reactions, price, location})
+// into small labeled pills, so engagement numbers read as metadata rather than being buried
+// inside the actual post text.
+function renderStatsRow(stats){
+  if(!stats) return '';
+  const labels = {
+    points: 'points', comments: 'comments', shares: 'shares',
+    reactions: 'reactions', price: 'price', location: 'location',
+  };
+  const chips = Object.keys(labels)
+    .filter(k => stats[k] !== undefined && stats[k] !== null && stats[k] !== '')
+    .map(k => `<span class="dm-stat-chip">${labels[k]} <b>${escapeHtml(String(stats[k]))}</b></span>`);
+  return chips.length ? `<div class="dm-stats-row">${chips.join('')}</div>` : '';
+}
+
 async function openResultDetail(id){
   const r = state.lastResultsById[id];
   if(!r) return;
@@ -1382,8 +1417,15 @@ async function openResultDetail(id){
         <div class="dm-content">${escapeHtml(r.snippet || '(no snippet)')}</div>
       </div>
       <div class="dm-section">
-        <div class="dm-section-label">Full content</div>
+        <div class="dm-section-label">Post content</div>
         <div class="dm-content dm-loading" id="dmFullContent">fetching full content…</div>
+        <div id="dmStatsRow"></div>
+      </div>
+      <div class="dm-section" id="dmCommentsSection" style="display:none;">
+        <button class="dm-comments-toggle" data-action="toggle-comments" id="dmCommentsToggle">show comments ▾</button>
+        <div class="dm-comments-body" id="dmCommentsBody">
+          <div class="dm-content" id="dmCommentsContent"></div>
+        </div>
       </div>
       <div class="dm-section">
         <div class="dm-section-label">Links found</div>
@@ -1413,11 +1455,33 @@ async function openResultDetail(id){
       fullEl.textContent = 'Could not fetch full content: ' + data.error;
       fullEl.classList.remove('dm-loading');
       state.detailFullText = '';
+      state.detailCommentsText = null;
+      state.detailCommentsCount = 0;
     } else {
       const text = data.text || '(no extractable text)';
       fullEl.textContent = text;
       fullEl.classList.remove('dm-loading');
       state.detailFullText = text;
+
+      const statsEl = document.getElementById('dmStatsRow');
+      if(statsEl) statsEl.innerHTML = renderStatsRow(data.stats);
+
+      state.detailCommentsText = data.commentsText || null;
+      state.detailCommentsCount = data.commentsCount || 0;
+      const commentsSection = document.getElementById('dmCommentsSection');
+      const commentsToggle = document.getElementById('dmCommentsToggle');
+      if(commentsSection && commentsToggle){
+        if(state.detailCommentsText){
+          commentsSection.style.display = '';
+          commentsToggle.textContent = `show ${state.detailCommentsCount} comment${state.detailCommentsCount===1?'':'s'} ▾`;
+        } else if(state.detailCommentsCount > 0){
+          // We know how many comments exist but don't have a clean version to show (generic
+          // scraped platforms) — say so rather than pretending there's nothing to see.
+          commentsSection.style.display = '';
+          commentsToggle.textContent = `${state.detailCommentsCount} comment${state.detailCommentsCount===1?'':'s'} (not shown — open source to view)`;
+          commentsToggle.disabled = true;
+        }
+      }
     }
 
     const links = [r.url, ...extractLinksFromText(state.detailFullText, r.url)];
@@ -1461,11 +1525,28 @@ async function openResultDetail(id){
   }
 }
 
+function toggleDetailComments(){
+  const body = document.getElementById('dmCommentsBody');
+  const toggle = document.getElementById('dmCommentsToggle');
+  const content = document.getElementById('dmCommentsContent');
+  if(!body || !toggle || !content) return;
+  const opening = !body.classList.contains('open');
+  if(opening && !content.textContent){
+    content.textContent = state.detailCommentsText || '';
+  }
+  body.classList.toggle('open', opening);
+  toggle.textContent = opening
+    ? `hide comments ▴`
+    : `show ${state.detailCommentsCount} comment${state.detailCommentsCount===1?'':'s'} ▾`;
+}
+
 function closeResultDetail(){
   const modal = document.getElementById('detailModal');
   if(modal) modal.classList.remove('open');
   document.body.style.overflow = '';
   state.detailResultId = null;
+  state.detailCommentsText = null;
+  state.detailCommentsCount = 0;
 }
 
 function showCopyToast(message){
@@ -1514,8 +1595,9 @@ async function copyDetailContent(){
     '',
     'Source: ' + r.url,
     '',
-    'Full content:',
+    'Post content:',
     state.detailFullText || '(not fetched)',
+    ...(state.detailCommentsText ? ['', `Comments (${state.detailCommentsCount}):`, state.detailCommentsText] : []),
     '',
     'Links:',
     ...(state.detailLinks || [r.url]),
@@ -1781,6 +1863,7 @@ document.addEventListener('click', (e)=>{
     case 'open-detail': openResultDetail(id); break;
     case 'close-detail': closeResultDetail(); break;
     case 'copy-detail': copyDetailContent(); break;
+    case 'toggle-comments': toggleDetailComments(); break;
     case 'copy-link': e.stopPropagation(); copyLinkItem(el.dataset.url); break;
     case 'copy-email': e.stopPropagation(); copyEmailItem(el.dataset.email); break;
     case 'copy-all-links': e.stopPropagation(); copyAllLinks(); break;
