@@ -351,37 +351,94 @@ router.get('/search', async (req, res) => {
 
 // On-demand full content fetch — only called when the user clicks "expand" on a specific result.
 // Pass the result's country so the fetch is geo-targeted (helps with geo-restricted content).
-// Formats a reddit-scrape.js fetchPost() result into the same kind of readable text the
-// generic fetchChain produces, so the frontend's expand/detail views don't need special-casing.
-function formatRedditPost(post) {
+//
+// The response shape is deliberately the same for every platform, so the frontend can render
+// one consistent "beginner friendly" layout instead of a wall of raw scraped text:
+//   text          — just the actual post/article content, no comments, no chrome
+//   stats         — best-effort engagement numbers (points/comments/shares/reactions/price/location)
+//   commentsText  — formatted discussion thread, or null if we don't have a clean one
+//   commentsCount — number of comments, so the UI can show "Show 12 comments" even if
+//                   commentsText itself is unavailable (e.g. generic scraped pages)
+
+// Formats just the post body (title/meta/selftext) — no comments — from a reddit-scrape.js
+// fetchPost() result.
+function formatRedditMain(post) {
   const lines = [];
   lines.push(post.title || '(no title)');
-  if (post.subreddit) lines.push(`r/${post.subreddit} · posted by u/${post.author || 'unknown'} · ${post.score} points`);
+  if (post.subreddit) lines.push(`r/${post.subreddit} · posted by u/${post.author || 'unknown'}`);
   if (post.selftext) { lines.push(''); lines.push(post.selftext); }
-  if (post.comments && post.comments.length) {
-    lines.push('');
-    lines.push(`--- ${post.comments.length} top-level comments ---`);
-    const renderComment = (c, depth) => {
-      const indent = '  '.repeat(depth);
-      lines.push(`${indent}u/${c.author || '[deleted]'} (${c.score} pts): ${c.body}`);
-      (c.replies || []).forEach(r => renderComment(r, depth + 1));
-    };
-    post.comments.forEach(c => renderComment(c, 0));
-  }
+  return lines.join('\n');
+}
+
+// Formats the comment thread separately, so the frontend can keep it collapsed by default.
+function formatRedditComments(post) {
+  if (!post.comments || !post.comments.length) return null;
+  const lines = [];
+  const renderComment = (c, depth) => {
+    const indent = '  '.repeat(depth);
+    lines.push(`${indent}u/${c.author || '[deleted]'} (${c.score} pts): ${c.body}`);
+    (c.replies || []).forEach(r => renderComment(r, depth + 1));
+  };
+  post.comments.forEach(c => renderComment(c, 0));
   return lines.join('\n');
 }
 
 // Formats a craigslist-scrape.js fetchPosting() result into readable text, same purpose as
-// formatRedditPost above.
+// formatRedditMain above. Craigslist postings have no comments, so there's nothing to hide.
 function formatCraigslistPosting(p) {
-  const lines = [];
-  lines.push(p.title || '(no title)');
-  const meta = [p.price, p.location].filter(Boolean).join(' · ');
-  if (meta) lines.push(meta);
-  if (p.attrs && p.attrs.length) lines.push(p.attrs.join(' · '));
-  lines.push('');
-  lines.push(p.body || '(no posting text found)');
-  return lines.join('\n');
+  return p.body || '(no posting text found)';
+}
+
+// Generic cleaner for pages fetched via the generic fetchChain (Facebook, X/Twitter, LinkedIn,
+// general web, university, etc.) — platforms we have no structured scraper for. Raw scraped
+// text from these tends to interleave the actual post/article with page chrome (nav, "Log In",
+// author header) and engagement noise (reaction counts, "Like Comment Share", the comment
+// thread itself). This is a best-effort heuristic, not a guarantee, but it makes the common
+// case (a single social post) far more readable: real content only, engagement numbers pulled
+// out as separate "stats" instead of being left inline, and the comment thread dropped rather
+// than shown as an undifferentiated wall of text.
+function cleanScrapedText(raw) {
+  if (!raw) return { text: '', stats: {} };
+  let text = raw.replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Pull out engagement numbers before we start cutting, so we can still show them as chips.
+  const stats = {};
+  let m;
+  if ((m = text.match(/All reactions:\s*(\d+)/i))) stats.reactions = m[1];
+  else if ((m = text.match(/(\d+)\s*(?:Likes?|Reactions?)\b/i))) stats.reactions = m[1];
+  if ((m = text.match(/(\d+)\s*Comments?\b/i))) stats.comments = m[1];
+  if ((m = text.match(/(\d+)\s*(?:Shares?|Reposts?|Retweets?)\b/i))) stats.shares = m[1];
+
+  // Cut everything from the first engagement/comment marker onward — that's where the real
+  // content ends and the noise (reactions, "Like Comment Share", the comment thread) begins.
+  // Require the marker to be reasonably far into the text so we don't nuke a genuinely short post.
+  const cutRe = /All reactions:|Like\s+Comment\s+Share|Like\s+Comment\b|\bMost relevant\b|\bTop comments?\b|\d+\s+Repl(?:y|ies)\b/i;
+  const cutMatch = text.match(cutRe);
+  if (cutMatch && cutMatch.index > 30) {
+    text = text.slice(0, cutMatch.index);
+  }
+
+  // Drop the header chrome that precedes the actual post text: page/author name, "Log In",
+  // "'s Post", "Verified account", a relative timestamp, then a "Shared with Public"-style
+  // visibility marker right before the real content starts.
+  const headerRe = /^.*?Shared with Public\s*/i;
+  if (headerRe.test(text)) {
+    text = text.replace(headerRe, '');
+  } else {
+    text = text
+      .replace(/^.*?\bFacebook\s+Log In\b/i, '')
+      .replace(/^.*?'s Post\b/i, '')
+      .replace(/\bVerified account\b/gi, '')
+      .replace(/^.*?·\s*\d+\s*(?:h|hr|hrs|d|day|days|w|wk|m|min)\b\s*·\s*/i, '');
+  }
+
+  text = text
+    .replace(/\bSee more\b/gi, ' ')
+    .replace(/\bSee translation\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return { text, stats };
 }
 
 router.post('/expand', async (req, res) => {
@@ -394,7 +451,17 @@ router.post('/expand', async (req, res) => {
     if (redditScrape.isRedditUrl(url)) {
       try {
         const post = await redditScrape.fetchPost(url);
-        return res.json({ provider: 'reddit-scrape', text: formatRedditPost(post), title: post.title, fromCache: false, sourceUrl: url, countryCode: null });
+        return res.json({
+          provider: 'reddit-scrape',
+          text: formatRedditMain(post),
+          stats: { points: post.score },
+          commentsText: formatRedditComments(post),
+          commentsCount: (post.comments || []).length,
+          title: post.title,
+          fromCache: false,
+          sourceUrl: url,
+          countryCode: null,
+        });
       } catch (redditErr) {
         console.error('Reddit direct post fetch failed, falling back to generic fetch chain:', redditErr.message);
         // fall through to the generic chain below
@@ -405,14 +472,31 @@ router.post('/expand', async (req, res) => {
     if (craigslistScrape.isCraigslistUrl(url)) {
       try {
         const posting = await craigslistScrape.fetchPosting(url);
-        return res.json({ provider: 'craigslist-scrape', text: formatCraigslistPosting(posting), title: posting.title, fromCache: false, sourceUrl: url, countryCode: null });
+        return res.json({
+          provider: 'craigslist-scrape',
+          text: formatCraigslistPosting(posting),
+          stats: { price: posting.price, location: posting.location },
+          commentsText: null,
+          commentsCount: 0,
+          title: posting.title,
+          fromCache: false,
+          sourceUrl: url,
+          countryCode: null,
+        });
       } catch (clErr) {
         console.error('Craigslist direct posting fetch failed, falling back to generic fetch chain:', clErr.message);
         // fall through to the generic chain below
       }
     }
     const page = await fetchChain.fetchPage(url, country);
-    res.json(page);
+    const cleaned = cleanScrapedText(page.text);
+    res.json({
+      ...page,
+      text: cleaned.text || page.text, // never leave the user with a blank panel if cleaning over-trims
+      stats: cleaned.stats,
+      commentsText: null, // no structured scraper for these platforms, so nothing clean to show
+      commentsCount: cleaned.stats.comments ? Number(cleaned.stats.comments) : 0,
+    });
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
