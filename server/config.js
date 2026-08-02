@@ -53,6 +53,7 @@ const PROVIDER_BUDGETS = {
   serper: parseInt(process.env.SERPER_MONTHLY_BUDGET || '1500', 10),
   firecrawl: parseInt(process.env.FIRECRAWL_MONTHLY_BUDGET || '600', 10),
   scraperapi: parseInt(process.env.SCRAPERAPI_MONTHLY_BUDGET || '400', 10),
+  scrapedo: parseInt(process.env.SCRAPEDO_MONTHLY_BUDGET || '400', 10), // was sharing the scraperapi bucket; split out now that both providers are active
   gemini: parseInt(process.env.GEMINI_MONTHLY_BUDGET || '1000', 10),
   proxyscrape: parseInt(process.env.PROXYSCRAPE_MONTHLY_BUDGET || '0', 10), // off by default
   brightdata: parseInt(process.env.BRIGHTDATA_MONTHLY_BUDGET || '0', 10),   // off by default
