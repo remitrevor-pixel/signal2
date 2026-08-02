@@ -1,23 +1,24 @@
-// Direct Reddit scraper via old.reddit.com — real-time, real data straight from Reddit itself,
-// instead of going through Google's index (serper-multi's platformDiscovery) which has crawl
-// lag and can miss recent/low-engagement posts, or the public /search.json endpoint (which gets
-// blocked outright, see reddit-public.js history).
+// Direct Reddit scraper via old.reddit.com. Parsing logic is a line-for-line match with
+// redditintel's scraper.js (see parseSearchResults etc. below — unchanged from the previous
+// revision of this file).
 //
-// Adapted from a similar approach used in the "redditintel" project: old.reddit.com serves much
-// lighter, less bot-protected HTML than new reddit.com, is throttled to stay under Reddit's
-// radar, and falls back to a proxy (here: your existing Scrape.do key rotation) if Reddit blocks
-// the request outright — which does happen to Render's shared IP ranges from time to time.
+// FETCH LAYER: now routes through the shared scraperapi-multi.js (real ScraperAPI keys,
+// SCRAPERAPI_API_KEY / SCRAPERAPI_API_KEY_1.._10) instead of the isolated
+// reddit-proxy.js/reddit-proxy-pool.js/reddit-keys.js files from the previous revision —
+// those three files are superseded by this and should be deleted. Behavior matches
+// redditintel's proxy.js: if ScraperAPI keys are configured, EVERY request routes through
+// ScraperAPI proactively (not just ones that got blocked); if not configured, requests go
+// out direct. Either way, one blanket retry after a 1s wait on any failure.
 //
-// Fragility tradeoff, by design: this depends on old Reddit's HTML structure via CSS selectors.
-// If Reddit changes that markup, parsing breaks. getRedditResults() in routes.js catches that
-// and falls back to the Serper-based platformDiscovery approach automatically, so a selector
-// break degrades gracefully instead of taking Reddit results down entirely.
+// isRedditUrl() at the bottom is signal2-specific (routes.js uses it to route /api/expand
+// requests here instead of the generic fetchChain) — no equivalent in redditintel.
 const cheerio = require('cheerio');
-const scrapedo = require('./scrapedo-multi');
+const scraperapi = require('./scraperapi-multi');
 
 const BASE_URL = 'https://old.reddit.com';
 // Reddit's own guidance for scrapers is to identify yourself with a real contact — update the
-// email below to something you actually monitor.
+// email below to something you actually monitor. Only used on the direct-fetch path;
+// ScraperAPI handles its own request headers when that path is active.
 const USER_AGENT = 'signal-research-console/1.0 (contact: you@example.com)';
 const MIN_REQUEST_GAP_MS = 1500;
 const CACHE_TTL_MS = 60 * 1000;
@@ -26,38 +27,38 @@ let lastRequestAt = 0;
 let queue = Promise.resolve();
 const cache = new Map();
 
-async function fetchOldRedditHtml(url) {
-  // Direct attempt first — works fine most of the time.
-  try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': USER_AGENT },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (res.ok) return await res.text();
-    if (res.status !== 403 && res.status !== 429) {
-      throw new Error(`old.reddit.com request failed: ${res.status}`);
-    }
-    // 403/429 — Reddit is blocking this IP for this request. Fall through to proxy fallback.
-  } catch (directErr) {
-    // Network-level failure (timeout, DNS, etc.) — also try the proxy fallback below.
+async function fetchOldRedditHtmlOnce(url) {
+  if (scraperapi.isConfigured()) {
+    // Proactive routing — every request goes through ScraperAPI when keys are configured,
+    // matching redditintel's proxy.js exactly (not a reactive on-403-only fallback).
+    const { html } = await scraperapi.fetchRaw(url, { render: false });
+    return html;
   }
+  const res = await fetch(url, {
+    headers: { 'User-Agent': USER_AGENT },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`old.reddit.com request failed: ${res.status}`);
+  return await res.text();
+}
 
-  // Proxy fallback — reuses your existing Scrape.do keys rather than requiring a separate,
-  // dedicated proxy API key just for this one provider.
+// Blanket retry: any failure -> wait 1s -> try the whole thing once more. Matches
+// redditintel's fetchWithRetry in proxy.js.
+async function fetchWithRetry(url) {
   try {
-    const proxied = await scrapedo.fetchRaw(url, { render: false });
-    return proxied.html;
-  } catch (proxyErr) {
-    throw new Error(`old.reddit.com blocked this request and the Scrape.do fallback also failed: ${proxyErr.message}`);
+    return await fetchOldRedditHtmlOnce(url);
+  } catch (err) {
+    await new Promise((r) => setTimeout(r, 1000));
+    return await fetchOldRedditHtmlOnce(url);
   }
 }
 
 function throttledFetch(url) {
   queue = queue.then(async () => {
     const wait = Math.max(0, lastRequestAt + MIN_REQUEST_GAP_MS - Date.now());
-    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     lastRequestAt = Date.now();
-    return fetchOldRedditHtml(url);
+    return fetchWithRetry(url);
   });
   return queue;
 }
@@ -71,7 +72,7 @@ async function cachedFetch(url) {
 }
 
 // ---------------------------------------------------------------------------
-// Parsing helpers
+// Shared parsing helpers — unchanged from the previous revision (zip1-parity)
 // ---------------------------------------------------------------------------
 
 /** Parses "thing"-style listing rows (subreddit hot/new/top/rising pages). */
@@ -95,61 +96,66 @@ function parseListingThings($, limit) {
   return posts;
 }
 
-/** Parses search-results-page rows. Each result is a .search-result-link div, but — same as
- *  listing pages — it sits inside a div.thing[data-fullname] wrapper that carries the real
- *  data-timestamp/data-score/data-author attributes. Reading only the inner div (as an earlier
- *  version of this did) meant every search result showed "date unknown" even though Reddit
- *  sends the real timestamp right there on the outer element. */
+/** Parses search-results-page rows, which use a different wrapper than listings. */
 function parseSearchResults($, limit) {
   const results = [];
-
-  $('div.thing[data-fullname]').each((_, el) => {
+  // Old Reddit's search page wraps each hit in .search-result-link, not .thing —
+  // this was the bug causing search to always return zero results.
+  $('div.search-result-link').each((_, el) => {
     if (results.length >= limit) return;
-    const $thing = $(el);
-    const $link = $thing.find('.search-result-link').first();
-    if ($link.length === 0) return; // not a search-result row
+    const $el = $(el);
+    const titleLink = $el.find('a.search-title').first();
+    const titleHref = titleLink.attr('href') || '';
+    const scoreText = $el.find('.search-score').first().text().trim(); // e.g. "42 points"
+    const commentsText = $el.find('.search-comments').first().text().trim(); // e.g. "13 comments"
+    const commentsHref = $el.find('.search-comments').first().attr('href') || '';
 
-    const titleLink = $link.find('a.search-title').first();
-    const href = titleLink.attr('href') || $thing.attr('data-permalink') || '';
-    const scoreText = $link.find('.search-score').first().text().trim();
-    const commentsText = $link.find('.search-comments').first().text().trim();
+    // The title link's href is NOT reliably the comments page — for link
+    // posts (anything submitting an external URL) it points to that
+    // external URL instead, which is what caused clicking a result to load
+    // the wrong thing (e.g. the subreddit's own front page/sidebar, if the
+    // href happened to resolve there). data-permalink (when present) and
+    // the "N comments" link are both reliably the actual thread URL
+    // regardless of post type, so prefer those over the title's href.
+    const dataPermalink = $el.attr('data-permalink');
+    let permalink;
+    if (dataPermalink) {
+      permalink = dataPermalink;
+    } else if (/\/comments\//.test(commentsHref)) {
+      permalink = commentsHref;
+    } else if (/\/comments\//.test(titleHref)) {
+      permalink = titleHref;
+    } else {
+      permalink = titleHref; // last resort — may be an external link for link-posts
+    }
+
+    // Prefer a real timestamp: data-timestamp if the row happens to carry
+    // one, else the <time datetime="..."> ISO string Old Reddit renders
+    // next to "submitted X ago" on search result rows.
+    let createdUtc = null;
+    const dataTimestamp = $el.attr('data-timestamp');
+    if (dataTimestamp) {
+      createdUtc = Number(dataTimestamp) / 1000;
+    } else {
+      const iso = $el.find('time').first().attr('datetime');
+      if (iso) {
+        const parsed = Date.parse(iso);
+        if (!isNaN(parsed)) createdUtc = parsed / 1000;
+      }
+    }
 
     results.push({
-      id: $thing.attr('data-fullname') || href,
+      id: $el.attr('data-fullname') || permalink,
       title: titleLink.text().trim(),
-      permalink: href,
-      author: $thing.attr('data-author') || $link.find('.search-author a').first().text().trim() || null,
-      score: Number($thing.attr('data-score')) || parseInt(scoreText, 10) || 0,
-      numComments: Number($thing.attr('data-comments-count')) || parseInt(commentsText, 10) || 0,
-      createdUtc: Number($thing.attr('data-timestamp')) / 1000 || null,
-      subreddit: $thing.attr('data-subreddit') || ($link.find('.search-subreddit-link').first().text().trim() || '').replace(/^r\//, ''),
+      permalink,
+      isExternalLink: !/\/comments\//.test(permalink), // true = link post, no reddit thread to expand
+      author: $el.attr('data-author') || $el.find('.search-author a').first().text().trim() || null,
+      score: parseInt(scoreText, 10) || 0,
+      numComments: parseInt(commentsText, 10) || 0,
+      createdUtc,
+      subreddit: $el.attr('data-subreddit') || ($el.find('.search-subreddit-link').first().text().trim() || '').replace(/^r\//, ''),
     });
   });
-
-  // Fallback: if old Reddit's search page doesn't actually nest .search-result-link inside a
-  // .thing wrapper (structure differs from what listing pages use), fall back to scanning the
-  // inner div directly — no timestamp, but search still works instead of silently returning 0.
-  if (results.length === 0) {
-    $('div.search-result-link').each((_, el) => {
-      if (results.length >= limit) return;
-      const $el = $(el);
-      const titleLink = $el.find('a.search-title').first();
-      const href = titleLink.attr('href') || '';
-      const scoreText = $el.find('.search-score').first().text().trim();
-      const commentsText = $el.find('.search-comments').first().text().trim();
-      results.push({
-        id: $el.attr('data-fullname') || href,
-        title: titleLink.text().trim(),
-        permalink: href,
-        author: $el.attr('data-author') || $el.find('.search-author a').first().text().trim() || null,
-        score: parseInt(scoreText, 10) || 0,
-        numComments: parseInt(commentsText, 10) || 0,
-        createdUtc: null,
-        subreddit: $el.attr('data-subreddit') || ($el.find('.search-subreddit-link').first().text().trim() || '').replace(/^r\//, ''),
-      });
-    });
-  }
-
   return results;
 }
 
@@ -172,7 +178,7 @@ function parseComments($, container) {
 }
 
 // ---------------------------------------------------------------------------
-// Public API
+// Public API — unchanged from the previous revision
 // ---------------------------------------------------------------------------
 
 async function fetchSubreddit(subreddit, sort = 'hot', limit = 25, timeRange = '') {
@@ -201,14 +207,16 @@ async function fetchPost(permalinkOrUrl) {
   const html = await cachedFetch(url);
   const $ = cheerio.load(html);
   const postEl = $('div.thing[data-fullname]').first();
-  // IMPORTANT: both selectors below are scoped to postEl (the post's own container), not the
-  // whole page. `.usertext-body .md` and `a.title` are generic classes reused all over an old
-  // Reddit page — the subreddit sidebar description is rendered with the exact same classes.
-  // Searching the whole document with $(...) instead of postEl.find(...) meant .first() often
-  // grabbed the sidebar's rules text instead of the actual post body.
+  // IMPORTANT: scope selftext/title to postEl, not the whole page. The
+  // subreddit's sidebar description lives in an element with the exact
+  // same classes (.usertext-body .md) and appears earlier in the raw HTML
+  // than the post itself — searching the whole page with $(...) instead of
+  // postEl.find(...) was grabbing the sidebar's "Welcome to r/X..." text
+  // instead of the actual post body. This was the cause of search results
+  // seeming to open the subreddit instead of the real post.
   const post = {
     id: postEl.attr('data-fullname'),
-    title: postEl.find('a.title').first().text().trim(),
+    title: postEl.find('a.title').first().text().trim() || $('a.title').first().text().trim(),
     author: postEl.attr('data-author'),
     score: Number(postEl.attr('data-score')) || 0,
     selftext: postEl.find('.usertext-body .md').first().text().trim(),
@@ -223,6 +231,7 @@ async function fetchPost(permalinkOrUrl) {
 
 // True if a URL points at Reddit in any of its common host forms — used by routes.js to decide
 // whether to route an /api/expand request through fetchPost() instead of the generic fetchChain.
+// signal2-specific; no equivalent in redditintel.
 function isRedditUrl(url) {
   return /^https?:\/\/(old\.|www\.)?reddit\.com\//i.test(url);
 }
