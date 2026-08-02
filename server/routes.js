@@ -44,7 +44,13 @@ function timeRangeMaxMinutes(rangeId) {
 function withinTimeRange(minsAgo, rangeId) {
   const max = timeRangeMaxMinutes(rangeId);
   if (max === null) return true;          // "all time" — no filter
-  if (minsAgo === null) return false;      // unknown date + a specific range requested -> exclude, don't guess
+  // Unknown date + a specific range requested: include rather than exclude. Serper/Google very
+  // often omits a date entirely for X/Facebook/LinkedIn site: results (those platforms restrict
+  // what Google can crawl/index), so hard-excluding undated results made those platforms look
+  // permanently broken under any time filter narrower than "All time" even when Serper found
+  // good, on-topic matches. Callers attach `dateUnknown: true` to these results instead, so nothing
+  // is silently hidden — the person searching can see which results have an unverified timestamp.
+  if (minsAgo === null) return true;
   return minsAgo <= max;
 }
 
@@ -120,6 +126,7 @@ async function getCraigslistResults(parsed, searchString, countryList, timeRange
             source: `${it.city}.craigslist.org`,
             url: it.link,
             minsAgo,
+            dateUnknown: minsAgo === null,
             discovery: false,
           };
         })
@@ -162,6 +169,7 @@ async function getSearchBackedResults(platformId, parsed, searchString, countrie
           source: new URL(r.url).hostname,
           url: r.url,
           minsAgo,
+          dateUnknown: minsAgo === null,
           real: true,
         });
       });
@@ -191,6 +199,7 @@ async function getLauncherDiscovery(platformId, parsed, searchString, countries,
           source: new URL(r.url).hostname,
           url: r.url,
           minsAgo,
+          dateUnknown: minsAgo === null,
           real: true,
           discovery: true, // this is a Google-side snippet ABOUT the platform, not a direct API result
         };
