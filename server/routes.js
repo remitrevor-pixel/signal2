@@ -59,22 +59,25 @@ async function getRedditResults(parsed, searchString, countryList, timeRange) {
   // re-checking an already-Reddit-filtered result against our own relative-date guesser would
   // just throw away good results whose exact timestamp we didn't parse.
   // Always old.reddit.com — never substitute a different data source (Google's index via
-  // Serper) even on failure. reddit-scrape.js already has its own internal retry via the
-  // Scrape.do proxy if Reddit blocks the direct request, so that's still "the old Reddit
-  // method," just reached a different way. If it still fails after that, we return the error
-  // rather than quietly switching to Google-indexed snippets — the outer per-platform fallback
-  // in the /search route handles broadening the QUERY (AND/OR logic instead of exact phrase),
-  // which re-calls this same function, so it's still old.reddit.com either way.
+  // Serper) even on failure. reddit-scrape.js routes every request through scraperapi-multi.js
+  // when ScraperAPI keys are configured (proactively, matching redditintel's proxy.js), so
+  // that's still "the old Reddit method," just reached a different way. If it still fails after
+  // that, we return the error rather than quietly switching to Google-indexed snippets — the
+  // outer per-platform fallback in the /search route handles broadening the QUERY (AND/OR logic
+  // instead of exact phrase), which re-calls this same function, so it's still old.reddit.com
+  // either way.
+  //
+  // No matchesQuery post-filter here — matches redditintel, which trusts old.reddit.com's own
+  // search results as-is rather than re-checking them against our boolean query parser.
   try {
     const redditTimeMap = { all: undefined, '1h': 'hour', '1d': 'day', '1w': 'week', '1m': 'month' };
     const posts = await redditScrape.searchReddit(query, { sort: 'relevance', limit: 40, timeRange: redditTimeMap[timeRange] });
     return posts
-      .filter(p => matchesQuery(parsed, p.title))
       .map(p => {
         const permalink = p.permalink && p.permalink.startsWith('http') ? p.permalink : `https://reddit.com${p.permalink || ''}`;
-        // Real timestamp when old.reddit.com's search page exposed one (via the outer .thing
-        // wrapper — see reddit-scrape.js); null falls back to "date unknown" in the UI rather
-        // than a guessed value.
+        // Real timestamp when old.reddit.com's search page exposed one directly, or via the
+        // <time datetime> ISO fallback (see reddit-scrape.js); null falls back to "date unknown"
+        // in the UI rather than a guessed value.
         const minsAgo = p.createdUtc ? Math.max(0, Math.floor((Date.now() / 1000 - p.createdUtc) / 60)) : null;
         return {
           id: `reddit_${p.id || permalink}`,
@@ -86,6 +89,7 @@ async function getRedditResults(parsed, searchString, countryList, timeRange) {
           url: permalink,
           minsAgo,
           discovery: false,
+          isExternalLink: p.isExternalLink,
         };
       });
   } catch (scrapeErr) {
