@@ -2,6 +2,12 @@
 // rendering + geo-targeting). Same rotation pattern as serper-multi.js / firecrawl-multi.js —
 // supports up to 10 keys via SCRAPE_DO_API_KEY_1 through SCRAPE_DO_API_KEY_10 (or a single
 // SCRAPE_DO_API_KEY). Distinct service from ScraperAPI.com — different endpoint/auth format.
+//
+// Quota bucket changed from 'scraperapi' to 'scrapedo' (see config.js PROVIDER_BUDGETS).
+// This used to reuse the 'scraperapi' bucket back when providers/scraperapi.js was dead code
+// that nothing called — now that scraperapi-multi.js is a real, actively-used provider (see
+// reddit-scrape.js and fetchChain.js), sharing a bucket would mean Scrape.do and ScraperAPI
+// usage silently ate into the same monthly budget number. Each now tracks separately.
 const KeyRotator = require('./keyRotator');
 const quota = require('../quota');
 
@@ -34,7 +40,7 @@ async function fetchRaw(url, { render = true, countryCode } = {}) {
     throw new Error('Scrape.do not configured (SCRAPE_DO_API_KEY or SCRAPE_DO_API_KEY_1, SCRAPE_DO_API_KEY_2, etc.)');
   }
 
-  const q1 = quota.check('scraperapi'); // reuses the existing "scraperapi" budget bucket/name
+  const q1 = quota.check('scrapedo');
   if (!q1.allowed) {
     throw new Error(`Scrape.do monthly budget exhausted (${q1.used}/${q1.budget}). You have ${scrapeDoRotator.getAllKeys().length} key(s) loaded.`);
   }
@@ -63,7 +69,7 @@ async function fetchRaw(url, { render = true, countryCode } = {}) {
         throw lastError;
       }
 
-      quota.increment('scraperapi', 1);
+      quota.increment('scrapedo', 1);
       const html = await res.text();
       return { html, sourceUrl: url };
     } catch (error) {
