@@ -1,8 +1,14 @@
 // Tries on-demand full-page fetch providers in order of preference (lowest risk / best quality
 // first), falling through to the next if one fails or is unconfigured. ProxyScrape and Bright
 // Data only get reached if you've explicitly enabled them in .env.
+//
+// ScraperAPI added as a fallback step, after Scrape.do and before Scrapingbot — same service
+// now used as the primary fetch layer for old.reddit.com scraping (see reddit-scrape.js), so
+// this reuses the same SCRAPERAPI_API_KEY / SCRAPERAPI_API_KEY_1.._10 pool rather than requiring
+// separate keys just for this chain.
 const firecrawl = require('./firecrawl-multi');
 const scrapedo = require('./scrapedo-multi');
+const scraperapi = require('./scraperapi-multi');
 const scrapingbot = require('./scrapingbot');
 const brightdata = require('./brightdata');
 const axios = require('axios');
@@ -19,6 +25,11 @@ async function fetchPage(url, countryCode) {
     const r = await scrapedo.fetchRaw(url, { countryCode });
     return { provider: 'scrapedo', text: stripHtml(r.html), title: null, fromCache: false, sourceUrl: url, countryCode: countryCode || null };
   } catch (e) { attempts.push(`scrapedo: ${e.message}`); }
+
+  try {
+    const r = await scraperapi.fetchRaw(url, { countryCode });
+    return { provider: 'scraperapi', text: stripHtml(r.html), title: null, fromCache: false, sourceUrl: url, countryCode: countryCode || null };
+  } catch (e) { attempts.push(`scraperapi: ${e.message}`); }
 
   try {
     const r = await scrapingbot.fetchRaw(url, { countryCode });
