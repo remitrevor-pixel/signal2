@@ -5,6 +5,7 @@ const { PLATFORMS, COUNTRIES } = require('./config');
 const { parseQuery, matchesQuery, toSearchString } = require('./queryParser');
 const reddit = require('./providers/reddit');
 const redditScrape = require('./providers/reddit-scrape');
+const redditRedlib = require('./providers/reddit-redlib');
 const craigslistScrape = require('./providers/craigslist-scrape');
 const serper = require('./providers/serper-multi');
 const fetchChain = require('./providers/fetchChain');
@@ -44,62 +45,72 @@ function timeRangeMaxMinutes(rangeId) {
 function withinTimeRange(minsAgo, rangeId) {
   const max = timeRangeMaxMinutes(rangeId);
   if (max === null) return true;          // "all time" — no filter
-  // Unknown date + a specific range requested: include rather than exclude. Serper/Google very
-  // often omits a date entirely for X/Facebook/LinkedIn site: results (those platforms restrict
-  // what Google can crawl/index), so hard-excluding undated results made those platforms look
-  // permanently broken under any time filter narrower than "All time" even when Serper found
-  // good, on-topic matches. Callers attach `dateUnknown: true` to these results instead, so nothing
-  // is silently hidden — the person searching can see which results have an unverified timestamp.
-  if (minsAgo === null) return true;
+  if (minsAgo === null) return false;      // unknown date + a specific range requested -> exclude, don't guess
   return minsAgo <= max;
 }
 
 // ---- platform result builders ----
 
+// Shared mapper — both reddit-scrape.js (old.reddit.com) and reddit-redlib.js (Redlib
+// mirror) return posts in the same shape (id/title/permalink/isExternalLink/author/score/
+// numComments/createdUtc/subreddit), so one function turns either into a result row.
+function mapRedditPostToResult(p) {
+  const permalink = p.permalink && p.permalink.startsWith('http') ? p.permalink : `https://reddit.com${p.permalink || ''}`;
+  // Real timestamp when the source exposed one directly (old.reddit.com's <time datetime>
+  // fallback); Redlib only gives relative text (relTime), which we don't try to parse into an
+  // exact timestamp — null falls back to "date unknown" in the UI rather than a guessed value.
+  const minsAgo = p.createdUtc ? Math.max(0, Math.floor((Date.now() / 1000 - p.createdUtc) / 60)) : null;
+  return {
+    id: `reddit_${p.id || permalink}`,
+    platform: 'reddit',
+    country: null, // Reddit content isn't reliably geo-taggable; shown regardless of country filter
+    title: p.title,
+    snippet: `by u/${p.author || 'unknown'}${p.subreddit ? ' in r/' + p.subreddit : ''} · ${p.score} points · ${p.numComments} comments${p.relTime ? ' · ' + p.relTime : ''}`,
+    source: p.subreddit ? `r/${p.subreddit}` : 'reddit',
+    url: permalink,
+    minsAgo,
+    discovery: false,
+    isExternalLink: p.isExternalLink,
+  };
+}
+
 async function getRedditResults(parsed, searchString, countryList, timeRange) {
   const query = searchString || parsed.positiveWords.join(' OR ') || 'research study';
 
-  // Primary: direct old.reddit.com scrape — real-time data straight from Reddit, no Google
-  // indexing lag, no missing recent/low-engagement posts. Reddit's own t= param does the time
+  // Primary: Redlib (a self-hosted, open-source Reddit front-end — see reddit-redlib.js).
+  // old.reddit.com's own logged-out access started getting blocked (~July 2026), so Redlib is
+  // now the first thing we try rather than a fallback. Reddit's own t= param does the time
   // filtering server-side here, which is why these results skip withinTimeRange() below —
-  // re-checking an already-Reddit-filtered result against our own relative-date guesser would
-  // just throw away good results whose exact timestamp we didn't parse.
-  // Always old.reddit.com — never substitute a different data source (Google's index via
-  // Serper) even on failure. reddit-scrape.js routes every request through scraperapi-multi.js
-  // when ScraperAPI keys are configured (proactively, matching redditintel's proxy.js), so
-  // that's still "the old Reddit method," just reached a different way. If it still fails after
-  // that, we return the error rather than quietly switching to Google-indexed snippets — the
-  // outer per-platform fallback in the /search route handles broadening the QUERY (AND/OR logic
-  // instead of exact phrase), which re-calls this same function, so it's still old.reddit.com
-  // either way.
+  // re-checking an already-filtered result against our own relative-date guesser would just
+  // throw away good results whose exact timestamp we didn't parse.
   //
-  // No matchesQuery post-filter here — matches redditintel, which trusts old.reddit.com's own
-  // search results as-is rather than re-checking them against our boolean query parser.
+  // Fallback: direct old.reddit.com scrape (reddit-scrape.js — routes through
+  // scraperapi-multi.js when ScraperAPI keys are configured), tried if Redlib itself is
+  // unconfigured or fails, instead of giving up or silently substituting Google-indexed Serper
+  // snippets.
+  //
+  // No matchesQuery post-filter on either path — matches redditintel, which trusts the search
+  // results as-is rather than re-checking them against our boolean query parser.
+  const redditTimeMap = { all: undefined, '1h': 'hour', '1d': 'day', '1w': 'week', '1m': 'month' };
+
+  let redlibErr = null;
+  if (redditRedlib.redlibEnabled()) {
+    try {
+      const posts = await redditRedlib.searchReddit(query, { sort: 'relevance', limit: 40, timeRange: redditTimeMap[timeRange] });
+      return posts.map(mapRedditPostToResult);
+    } catch (e) {
+      redlibErr = e;
+    }
+  }
+
   try {
-    const redditTimeMap = { all: undefined, '1h': 'hour', '1d': 'day', '1w': 'week', '1m': 'month' };
     const posts = await redditScrape.searchReddit(query, { sort: 'relevance', limit: 40, timeRange: redditTimeMap[timeRange] });
-    return posts
-      .map(p => {
-        const permalink = p.permalink && p.permalink.startsWith('http') ? p.permalink : `https://reddit.com${p.permalink || ''}`;
-        // Real timestamp when old.reddit.com's search page exposed one directly, or via the
-        // <time datetime> ISO fallback (see reddit-scrape.js); null falls back to "date unknown"
-        // in the UI rather than a guessed value.
-        const minsAgo = p.createdUtc ? Math.max(0, Math.floor((Date.now() / 1000 - p.createdUtc) / 60)) : null;
-        return {
-          id: `reddit_${p.id || permalink}`,
-          platform: 'reddit',
-          country: null, // Reddit content isn't reliably geo-taggable; shown regardless of country filter
-          title: p.title,
-          snippet: `by u/${p.author || 'unknown'}${p.subreddit ? ' in r/' + p.subreddit : ''} · ${p.score} points · ${p.numComments} comments`,
-          source: p.subreddit ? `r/${p.subreddit}` : 'reddit',
-          url: permalink,
-          minsAgo,
-          discovery: false,
-          isExternalLink: p.isExternalLink,
-        };
-      });
+    return posts.map(mapRedditPostToResult);
   } catch (scrapeErr) {
-    return { error: `Reddit: ${scrapeErr.message}` };
+    const msg = redlibErr
+      ? `Reddit: ${redlibErr.message} (Redlib) / ${scrapeErr.message} (old.reddit.com fallback)`
+      : `Reddit: ${scrapeErr.message}`;
+    return { error: msg };
   }
 }
 
@@ -126,7 +137,6 @@ async function getCraigslistResults(parsed, searchString, countryList, timeRange
             source: `${it.city}.craigslist.org`,
             url: it.link,
             minsAgo,
-            dateUnknown: minsAgo === null,
             discovery: false,
           };
         })
@@ -169,7 +179,6 @@ async function getSearchBackedResults(platformId, parsed, searchString, countrie
           source: new URL(r.url).hostname,
           url: r.url,
           minsAgo,
-          dateUnknown: minsAgo === null,
           real: true,
         });
       });
@@ -199,7 +208,6 @@ async function getLauncherDiscovery(platformId, parsed, searchString, countries,
           source: new URL(r.url).hostname,
           url: r.url,
           minsAgo,
-          dateUnknown: minsAgo === null,
           real: true,
           discovery: true, // this is a Google-side snippet ABOUT the platform, not a direct API result
         };
@@ -458,10 +466,31 @@ router.post('/expand', async (req, res) => {
   const { url, country } = req.body || {};
   if (!url) return res.status(400).json({ error: 'url required' });
   try {
-    // Reddit URLs get real post + full comment thread via the direct scraper instead of the
-    // generic fetch chain, which has no special handling for Reddit's markup and tends to
+    // Reddit URLs get real post + full comment thread via a Reddit-aware fetcher instead of
+    // the generic fetch chain, which has no special handling for Reddit's markup and tends to
     // return messy, hard-to-read raw HTML for it.
     if (redditScrape.isRedditUrl(url)) {
+      // Primary: Redlib (see reddit-redlib.js) — old.reddit.com itself is currently
+      // unreliable, so Redlib is tried first rather than as a fallback.
+      if (redditRedlib.redlibEnabled()) {
+        try {
+          const post = await redditRedlib.fetchPost(url);
+          return res.json({
+            provider: 'reddit-redlib',
+            text: formatRedditMain(post),
+            stats: { points: post.score },
+            commentsText: formatRedditComments(post),
+            commentsCount: (post.comments || []).length,
+            title: post.title,
+            fromCache: false,
+            sourceUrl: url,
+            countryCode: null,
+          });
+        } catch (redlibErr) {
+          console.error('Redlib post fetch failed, trying old.reddit.com fallback:', redlibErr.message);
+          // fall through to old.reddit.com below
+        }
+      }
       try {
         const post = await redditScrape.fetchPost(url);
         return res.json({
@@ -476,7 +505,7 @@ router.post('/expand', async (req, res) => {
           countryCode: null,
         });
       } catch (redditErr) {
-        console.error('Reddit direct post fetch failed, falling back to generic fetch chain:', redditErr.message);
+        console.error('old.reddit.com post fetch also failed, falling back to generic fetch chain:', redditErr.message);
         // fall through to the generic chain below
       }
     }
